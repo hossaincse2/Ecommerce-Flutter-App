@@ -1,6 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:karbar_shop/screens/account/my_account_screen.dart';
+import 'package:karbar_shop/screens/account/profile_update_screen.dart';
+import 'package:karbar_shop/screens/auth/forgot_password_screen.dart';
+import 'package:karbar_shop/screens/auth/login_screen.dart';
+import 'package:karbar_shop/screens/auth/registration_screen.dart';
+import 'package:karbar_shop/screens/cart/cart_screen.dart';
 import 'package:karbar_shop/screens/categories_screen.dart';
+import 'package:karbar_shop/screens/category_products_screen.dart';
+import 'package:karbar_shop/screens/checkout/checkout_screen.dart';
 import 'package:karbar_shop/screens/home_screen.dart';
+import 'package:karbar_shop/screens/orders/order_details_screen.dart';
+import 'package:karbar_shop/screens/orders/order_tracking_screen.dart';
+import 'package:karbar_shop/screens/product_details_screen.dart';
+import 'package:karbar_shop/screens/profile_screen.dart';
+import 'package:karbar_shop/screens/settings/settings_screen.dart';
+import 'package:karbar_shop/screens/shop_screen.dart';
+import 'package:karbar_shop/screens/wishlist_screen.dart';
 // import 'package:karbar_shop/screens/wishlist_screen.dart';
 // import 'package:karbar_shop/screens/profile_screen.dart';
 import 'services/api_service.dart';
@@ -40,17 +55,33 @@ class KarbarShopApp extends StatelessWidget {
         '/': (context) => MainNavigationWrapper(),
         '/home': (context) => HomeScreen(),
         '/categories': (context) => CategoriesScreen(),
-        // '/wishlist': (context) => WishlistScreen(),
-        // '/profile': (context) => ProfileScreen(),
-        // '/shop': (context) => ShopScreen(),
-        // '/category-products': (context) {
-        //   final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
-        //   return CategoryProductsScreen(categoryId: args['categoryId']!);
-        // },
-        // '/product-details': (context) {
-        //   final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
-        //   return ProductDetailsScreen(productId: args['productId']!);
-        // },
+        '/wishlist': (context) => WishlistScreen(),
+        '/profile': (context) => ProfileScreen(),
+        '/shop': (context) => ShopScreen(),
+        '/category-products': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
+          return CategoryProductsScreen(categoryId: args['categoryId']!);
+        },
+        '/product-details': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
+          return ProductDetailsScreen(productId: args['productId']!);
+        },
+        '/login': (context) => LoginScreen(),
+        '/register': (context) => RegistrationScreen(),
+        '/forgot-password': (context) => ForgotPasswordScreen(),
+        '/cart': (context) => CartScreen(),
+        '/checkout': (context) => CheckoutScreen(),
+        '/my-account': (context) => MyAccountScreen(),
+        '/order-details': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
+          return OrderDetailsScreen(orderId: args['orderId']!);
+        },
+        '/order-tracking': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
+          return OrderTrackingScreen(orderId: args['orderId']!);
+        },
+        '/update-profile': (context) => ProfileUpdateScreen(),
+        '/settings': (context) => SettingsScreen(),
       },
       initialRoute: '/',
     );
@@ -69,8 +100,8 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   final List<Widget> _screens = [
     HomeScreen(),
     CategoriesScreen(),
-    // WishlistScreen(),
-    // ProfileScreen(),
+    ShopScreen(),
+    ProfileScreen(),
   ];
 
   @override
