@@ -63,9 +63,6 @@ class ApiService {
         },
       ).timeout(AppConfig.connectionTimeout);
 
-      print('API Response Status: ${response.statusCode}');
-      print('API Response Body: ${response.body}');
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 

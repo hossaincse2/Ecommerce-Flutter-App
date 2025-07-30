@@ -33,9 +33,9 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
   @override
   void initState() {
     super.initState();
-    _selectedCategory = widget.currentCategory;
-    _selectedSortBy = widget.currentSortBy;
-    _selectedBrandId = widget.currentBrandId;
+    _selectedCategory = widget.currentCategory.isEmpty ? 'all' : widget.currentCategory;
+    _selectedSortBy = widget.currentSortBy.isEmpty ? AppConfig.defaultSortBy : widget.currentSortBy;
+    _selectedBrandId = widget.currentBrandId.isEmpty ? 'all' : widget.currentBrandId;
     _loadFilterData();
   }
 
@@ -46,31 +46,25 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
         _errorMessage = null;
       });
 
-      // Build complete URLs with proper base URL
       final categoriesUrl = '${AppConfig.baseUrl}${AppConfig.categoriesEndpoint}';
       final brandsUrl = '${AppConfig.baseUrl}${AppConfig.brandsEndpoint}';
 
       print('Loading categories from: $categoriesUrl');
       print('Loading brands from: $brandsUrl');
 
-      // Make HTTP requests with proper headers
-      final categoriesResponse = await http.get(
-        Uri.parse(categoriesUrl),
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'User-Agent': 'Karbar-Shop-App/1.0.0',
-        },
-      ).timeout(Duration(seconds: AppConfig.requestTimeout));
+      final responses = await Future.wait([
+        http.get(
+          Uri.parse(categoriesUrl),
+          headers: ApiConstants.defaultHeaders,
+        ).timeout(Duration(seconds: AppConfig.requestTimeout)),
+        http.get(
+          Uri.parse(brandsUrl),
+          headers: ApiConstants.defaultHeaders,
+        ).timeout(Duration(seconds: AppConfig.requestTimeout)),
+      ]);
 
-      final brandsResponse = await http.get(
-        Uri.parse(brandsUrl),
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'User-Agent': 'Karbar-Shop-App/1.0.0',
-        },
-      ).timeout(Duration(seconds: AppConfig.requestTimeout));
+      final categoriesResponse = responses[0];
+      final brandsResponse = responses[1];
 
       print('Categories response status: ${categoriesResponse.statusCode}');
       print('Brands response status: ${brandsResponse.statusCode}');
@@ -80,11 +74,9 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
         final brandsData = json.decode(brandsResponse.body);
 
         setState(() {
-          // Handle different API response structures
           List<dynamic> categoriesRaw = [];
           List<dynamic> brandsRaw = [];
 
-          // Try different possible response structures
           if (categoriesData is Map) {
             categoriesRaw = categoriesData['data'] ??
                 categoriesData['categories'] ??
@@ -119,26 +111,34 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
             }).where((item) => item['id']!.isNotEmpty).toList(),
           ];
 
-          _isLoading = false;
+          // Ensure selected values are valid
+          if (!_categories.any((cat) => cat['id'] == _selectedCategory)) {
+            _selectedCategory = 'all';
+          }
+          if (!_brands.any((brand) => brand['id'] == _selectedBrandId)) {
+            _selectedBrandId = 'all';
+          }
 
+          _isLoading = false;
         });
       } else {
-        throw Exception('Failed to load filter data. Categories: ${categoriesResponse.statusCode}, Brands: ${brandsResponse.statusCode}');
+        throw Exception(
+            'Failed to load filter data. Categories: ${categoriesResponse.statusCode}, Brands: ${brandsResponse.statusCode}');
       }
     } catch (e) {
       print('Error loading filter data: $e');
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Failed to load filters: ${e.toString()}';
+        _errorMessage = 'Failed to load filters. Using fallback data.';
 
-        // Fallback to static data from AppConfig
         _categories = [
           {'id': 'all', 'name': 'All Categories'},
           ...AppConfig.categories.map((cat) => {
             'id': cat,
-            'name': cat.split('_').map((word) =>
-            word[0].toUpperCase() + word.substring(1)
-            ).join(' ')
+            'name': cat
+                .split('_')
+                .map((word) => word[0].toUpperCase() + word.substring(1))
+                .join(' ')
           }).toList(),
         ];
 
@@ -146,11 +146,20 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
           {'id': 'all', 'name': 'All Brands'},
           ...AppConfig.brands.map((brand) => {
             'id': brand,
-            'name': brand.split('_').map((word) =>
-            word[0].toUpperCase() + word.substring(1)
-            ).join(' ')
+            'name': brand
+                .split('_')
+                .map((word) => word[0].toUpperCase() + word.substring(1))
+                .join(' ')
           }).toList(),
         ];
+
+        // Ensure selected values are valid
+        if (!_categories.any((cat) => cat['id'] == _selectedCategory)) {
+          _selectedCategory = 'all';
+        }
+        if (!_brands.any((brand) => brand['id'] == _selectedBrandId)) {
+          _selectedBrandId = 'all';
+        }
       });
     }
   }
@@ -165,7 +174,6 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
       ),
       child: Column(
         children: [
-          // Handle bar
           Container(
             margin: EdgeInsets.only(top: 12),
             width: 40,
@@ -175,8 +183,6 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
               borderRadius: BorderRadius.circular(2),
             ),
           ),
-
-          // Header
           Padding(
             padding: EdgeInsets.all(20),
             child: Row(
@@ -207,10 +213,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
               ],
             ),
           ),
-
           Divider(height: 1, color: Colors.grey[200]),
-
-          // Error message
           if (_errorMessage != null)
             Container(
               margin: EdgeInsets.all(16),
@@ -233,7 +236,6 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                 ],
               ),
             ),
-
           if (_isLoading)
             Expanded(
               child: Center(
@@ -282,8 +284,6 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                 ),
               ),
             ),
-
-          // Action buttons
           Container(
             padding: EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -307,6 +307,11 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                           _selectedCategory = AppConfig.defaultCategory;
                           _selectedSortBy = AppConfig.defaultSortBy;
                           _selectedBrandId = 'all';
+                        });
+                        Navigator.pop(context, {
+                          'category': _selectedCategory,
+                          'sortBy': _selectedSortBy,
+                          'brandId': _selectedBrandId,
                         });
                       },
                       child: Text(

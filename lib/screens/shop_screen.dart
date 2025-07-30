@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:karbar_shop/services/api_service.dart';
+import 'package:http/http.dart' as http;
 import 'package:karbar_shop/screens/widgets/filter_bottom_sheet.dart';
 import 'package:karbar_shop/screens/widgets/product_card.dart';
+import 'dart:convert';
 import '../../config/app_config.dart';
+import '../../constants/api_constants.dart';
 import '../../models/product.dart';
 
 class ShopScreen extends StatefulWidget {
@@ -20,13 +22,13 @@ class _ShopScreenState extends State<ShopScreen> {
   bool _hasError = false;
   String _errorMessage = '';
   bool _hasMoreData = true;
-  int _currentPage = 1;
 
   // Filter variables
   String _currentCategory = AppConfig.defaultCategory;
   String _currentSortBy = AppConfig.defaultSortBy;
   String _currentBrandId = 'all';
   String _searchQuery = '';
+  int _currentPage = 1;
 
   // Controllers
   final ScrollController _scrollController = ScrollController();
@@ -47,8 +49,10 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels == _scrollController.position.maxScrollExtent) {
-      if (!_isLoadingMore && _hasMoreData) {
+    // Check if we're near the bottom (within 200 pixels)
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoadingMore && _hasMoreData && !_isLoading) {
         _loadMoreProducts();
       }
     }
@@ -69,31 +73,58 @@ class _ShopScreenState extends State<ShopScreen> {
     });
 
     try {
-      final products = await ApiService.getProducts(
-        perPage: AppConfig.shopPerPage,
+      final url = ApiConstants.buildProductsUrl(
+        AppConfig.baseUrl,
         page: _currentPage,
-        category: _currentCategory == AppConfig.defaultCategory ? null : _currentCategory,
-        brand: _currentBrandId == 'all' ? null : _currentBrandId,
-        sortBy: _currentSortBy == AppConfig.defaultSortBy ? null : _currentSortBy,
+        perPage: AppConfig.shopPerPage,
+        category: _currentCategory,
+        brand: _currentBrandId,
+        sortBy: _currentSortBy,
         search: _searchQuery.isEmpty ? null : _searchQuery,
       );
 
-      setState(() {
-        if (refresh || _currentPage == 1) {
-          _products = products;
-        } else {
-          _products.addAll(products);
-        }
+      print('Loading products from: $url');
 
-        _hasMoreData = products.length == AppConfig.shopPerPage;
-        _isLoading = false;
-        _hasError = false;
-      });
+      final response = await http.get(
+        Uri.parse(url),
+        headers: ApiConstants.defaultHeaders,
+      ).timeout(AppConfig.connectionTimeout);
+
+      print('Response status: ${response.statusCode}');
+      print('Response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> productsJson = data['data'] ?? data['products'] ?? [];
+
+        final List<Product> newProducts =
+        productsJson.map((json) => Product.fromJson(json)).toList();
+
+        setState(() {
+          if (refresh || _currentPage == 1) {
+            _products = newProducts;
+          } else {
+            _products.addAll(newProducts);
+          }
+
+          _hasMoreData = newProducts.length == AppConfig.shopPerPage;
+          _isLoading = false;
+          _hasError = false;
+        });
+      } else {
+        throw Exception(
+            'HTTP ${response.statusCode}: ${ApiConstants.getErrorMessage(response.statusCode)}');
+      }
     } catch (e) {
+      print('Error loading products: $e');
       setState(() {
         _isLoading = false;
         _hasError = true;
-        _errorMessage = e.toString();
+        _errorMessage = e.toString().contains('TimeoutException')
+            ? ApiConstants.errorTimeout
+            : e.toString().contains('SocketException')
+            ? ApiConstants.errorNetwork
+            : ApiConstants.errorServer;
       });
     }
   }
@@ -106,30 +137,52 @@ class _ShopScreenState extends State<ShopScreen> {
     });
 
     try {
-      _currentPage++;
-      final products = await ApiService.getProducts(
+      final url = ApiConstants.buildProductsUrl(
+        AppConfig.baseUrl,
+        page: _currentPage + 1, // Use next page for API call
         perPage: AppConfig.shopPerPage,
-        page: _currentPage,
-        category: _currentCategory == AppConfig.defaultCategory ? null : _currentCategory,
-        brand: _currentBrandId == 'all' ? null : _currentBrandId,
-        sortBy: _currentSortBy == AppConfig.defaultSortBy ? null : _currentSortBy,
+        category: _currentCategory,
+        brand: _currentBrandId,
+        sortBy: _currentSortBy,
         search: _searchQuery.isEmpty ? null : _searchQuery,
       );
 
-      setState(() {
-        _products.addAll(products);
-        _hasMoreData = products.length == AppConfig.shopPerPage;
-        _isLoadingMore = false;
-      });
-    } catch (e) {
-      _currentPage--; // Revert page increment on error
-      setState(() {
-        _isLoadingMore = false;
-      });
+      final response = await http.get(
+        Uri.parse(url),
+        headers: ApiConstants.defaultHeaders,
+      ).timeout(AppConfig.connectionTimeout);
 
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> productsJson = data['data'] ?? data['products'] ?? [];
+
+        final List<Product> newProducts =
+        productsJson.map((json) => Product.fromJson(json)).toList();
+
+        setState(() {
+          _products.addAll(newProducts);
+          _currentPage++; // Increment page only on success
+          _hasMoreData = newProducts.length == AppConfig.shopPerPage;
+          _isLoadingMore = false;
+        });
+      } else {
+        setState(() {
+          _isLoadingMore = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ApiConstants.errorLoadMore),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingMore = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to load more products'),
+          content: Text(ApiConstants.errorLoadMore),
           backgroundColor: Colors.red,
         ),
       );
@@ -212,9 +265,11 @@ class _ShopScreenState extends State<ShopScreen> {
                     : null,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25),
+                  borderSide: BorderSide(color: Colors.grey[300]!),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(25),
@@ -310,6 +365,9 @@ class _ShopScreenState extends State<ShopScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).primaryColor,
                 padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ),
           ],
@@ -372,50 +430,71 @@ class _ShopScreenState extends State<ShopScreen> {
   Widget _buildProductGrid() {
     return Column(
       children: [
-        // Filter summary (keep your existing code)
-        if (_currentCategory != AppConfig.defaultCategory ||
+        // Filter summary
+        if (_currentCategory != 'all' ||
             _currentBrandId != 'all' ||
             _searchQuery.isNotEmpty)
           Container(
-            // Your existing filter summary widget
+            padding: EdgeInsets.all(16),
+            color: Colors.blue[50],
+            child: Row(
+              children: [
+                Icon(Icons.filter_list, size: 16, color: Colors.blue[700]),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Showing ${_products.length} products',
+                    style: TextStyle(
+                      color: Colors.blue[700],
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _currentCategory = AppConfig.defaultCategory;
+                      _currentSortBy = AppConfig.defaultSortBy;
+                      _currentBrandId = 'all';
+                      _searchQuery = '';
+                      _searchController.clear();
+                    });
+                    _loadProducts(refresh: true);
+                  },
+                  child: Text(
+                    'Clear',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
           ),
 
-        // Product grid with improved infinite scroll
+        // Product grid
         Expanded(
-          child: NotificationListener<ScrollNotification>(
-            onNotification: (scrollNotification) {
-              if (scrollNotification.metrics.pixels ==
-                  scrollNotification.metrics.maxScrollExtent &&
-                  !_isLoadingMore &&
-                  _hasMoreData) {
-                _loadMoreProducts();
-                return true;
-              }
-              return false;
-            },
-            child: GridView.builder(
-              controller: _scrollController,
-              padding: EdgeInsets.all(16),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: AppConfig.shopGridColumns,
-                childAspectRatio: AppConfig.shopItemAspectRatio,
-                crossAxisSpacing: AppConfig.shopGridSpacing,
-                mainAxisSpacing: AppConfig.shopGridSpacing,
-              ),
-              itemCount: _products.length + (_hasMoreData ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index < _products.length) {
-                  return ProductCard(product: _products[index]);
-                } else {
-                  return Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
-                  );
-                }
-              },
+          child: GridView.builder(
+            controller: _scrollController,
+            padding: EdgeInsets.all(16),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: AppConfig.shopGridColumns,
+              childAspectRatio: AppConfig.shopItemAspectRatio,
+              crossAxisSpacing: AppConfig.shopGridSpacing,
+              mainAxisSpacing: AppConfig.shopGridSpacing,
             ),
+            itemCount: _products.length + (_isLoadingMore ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (index < _products.length) {
+                return ProductCard(product: _products[index]);
+              } else {
+                return Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              }
+            },
           ),
         ),
       ],
