@@ -1,98 +1,59 @@
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
-
 import '../models/product.dart';
 import '../models/category.dart';
-import '../models/hero_image.dart';
 import '../config/app_config.dart';
 import '../constants/api_constants.dart';
 import '../models/product_details.dart';
 import '../services/api_client.dart';
 import '../utils/logger.dart';
 
-class ApiService {
+class ProductService {
   static final ApiClient _apiClient = ApiClient();
 
   // ================ PRODUCTS API ================
 
   static Future<List<Product>> getProducts({
-    int perPage = 12,
-    int page = 1,
-    String? category,
-    String? brand,
-    String? sortBy,
-    String? search,
-    String businessCategory = 'default',
+    String search = ApiConstants.defaultSearch,
+    String category = ApiConstants.defaultCategory,
+    int page = AppConfig.defaultPage,
+    int perPage = AppConfig.defaultPerPage,
+    String sortBy = AppConfig.defaultSortBy,
+    String brandId = ApiConstants.defaultBrandId,
+    String businessCategory = AppConfig.defaultBusinessCategory,
   }) async {
     try {
-      // Build query parameters
-      Map<String, String> queryParams = {
-        'per_page': perPage.toString(),
-        'page': page.toString(),
-        'business_category': businessCategory,
-      };
+      // Validate parameters
+      _validatePaginationParams(page, perPage);
 
-      if (category != null && category.isNotEmpty && category != 'all') {
-        queryParams['category'] = category;
-      }
+      final queryParameters = _buildProductsQueryParams(
+        search: search,
+        category: category,
+        page: page,
+        perPage: perPage,
+        sortBy: sortBy,
+        brandId: brandId,
+        businessCategory: businessCategory,
+      );
 
-      if (brand != null && brand.isNotEmpty && brand != 'all') {
-        queryParams['brand'] = brand;
-      }
+      Logger.logInfo('Fetching products with params: $queryParameters');
 
-      if (sortBy != null && sortBy.isNotEmpty) {
-        queryParams['sort_by'] = sortBy;
-      }
+      final response = await _apiClient.get(
+        AppConfig.productsEndpoint,
+        queryParameters: queryParameters,
+      );
 
-      if (search != null && search.isNotEmpty) {
-        queryParams['search'] = search;
-      }
+      final List<dynamic> productsList = response['data'] ?? [];
+      final products = productsList.map((json) => Product.fromJson(json)).toList();
 
-      // Build the URL
-      final uri = Uri.parse('${AppConfig.baseUrl}${AppConfig.productsEndpoint}')
-          .replace(queryParameters: queryParams);
+      Logger.logSuccess('Successfully fetched ${products.length} products');
+      return products;
 
-
-      final response = await http.get(
-        uri,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'User-Agent': 'Karbar-Shop-App/1.0.0',
-        },
-      ).timeout(AppConfig.connectionTimeout);
-
-      print('API Response Status: ${response.statusCode}');
-      print('API Response Body: ${response.body}');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-
-        // Handle different API response structures
-        List<dynamic> productsJson = [];
-
-        if (data is Map) {
-          productsJson = data['data'] ??
-              data['products'] ??
-              data['results'] ??
-              [];
-        } else if (data is List) {
-          productsJson = data;
-        }
-
-        return productsJson
-            .map((json) => Product.fromJson(json as Map<String, dynamic>))
-            .toList();
-      } else {
-        throw Exception('Failed to load products: HTTP ${response.statusCode}');
-      }
+    } on ApiException {
+      rethrow;
     } catch (e) {
-      print('Error in getProducts: $e');
-      throw Exception('Failed to load products: $e');
+      Logger.logError('Error fetching products', e);
+      throw ApiException('Failed to fetch products: $e');
     }
   }
-
 // ================ PRODUCT DETAILS API ================
 
   static Future<ProductDetails> getProductDetails(String slug) async {
@@ -153,7 +114,6 @@ class ApiService {
       throw ApiException('Failed to fetch product details: $e');
     }
   }
-
 
   // ================ SUBMIT REVIEW API ================
 
@@ -230,28 +190,6 @@ class ApiService {
     } catch (e) {
       Logger.logError('Error fetching categories', e);
       throw ApiException('Failed to fetch categories: $e');
-    }
-  }
-
-  // ================ HERO IMAGES API ================
-
-  static Future<List<HeroImage>> getHeroImages() async {
-    try {
-      Logger.logInfo('Fetching hero images');
-
-      final response = await _apiClient.get(AppConfig.heroImagesEndpoint);
-
-      final List<dynamic> imagesList = response['data'] ?? [];
-      final heroImages = imagesList.map((json) => HeroImage.fromJson(json)).toList();
-
-      Logger.logSuccess('Successfully fetched ${heroImages.length} hero images');
-      return heroImages;
-
-    } on ApiException {
-      rethrow;
-    } catch (e) {
-      Logger.logError('Error fetching hero images', e);
-      throw ApiException('Failed to fetch hero images: $e');
     }
   }
 

@@ -63,8 +63,9 @@ class KarbarShopApp extends StatelessWidget {
           return CategoryProductsScreen(categoryId: args['categoryId']!);
         },
         '/product-details': (context) {
-          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
-          return ProductDetailsScreen(productId: args['productId']!);
+          final args = ModalRoute.of(context)!.settings.arguments;
+          final slug = (args is Map<String, dynamic> ? args['slug']?.toString() : null) ?? 'default_id';
+          return ProductDetailsScreen(slug: slug);
         },
         '/login': (context) => LoginScreen(),
         '/register': (context) => RegistrationScreen(),

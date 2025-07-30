@@ -171,7 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(height: 20),
             _buildFeaturedProductsSection(),
             if (isLoadingMore) LoadingWidgets.buildLoadingMoreIndicator(),
-            SizedBox(height: 80), // Bottom padding for navigation bar
+            SizedBox(height: 100), // Bottom padding for navigation bar
           ],
         ),
       ),
@@ -372,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SharedWidgets.buildSectionHeaderWithAction(
           'Featured Products',
           'View All',
-              () => UIUtils.onViewAllProductsTap(context),
+              () => Navigator.pushNamed(context, '/shop'),
         ),
         SizedBox(height: 12),
         _buildProductsGrid(),
@@ -387,7 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: EdgeInsets.symmetric(horizontal: 16),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        childAspectRatio: 0.7,
+        childAspectRatio: 0.62,
         crossAxisSpacing: 8,
         mainAxisSpacing: 12,
       ),
@@ -400,7 +400,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildProductCard(Product product) {
     return GestureDetector(
-      onTap: () => UIUtils.onProductTap(context, product.name),
+      onTap: () {
+        if (product.id != null) {
+          Navigator.pushNamed(context, '/product-details', arguments: product.slug.toString());
+        }
+      },
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
@@ -467,16 +471,19 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: EdgeInsets.all(6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min, // ← Key fix: Makes column shrink-wrap
           children: [
-            Text(
-              product.name,
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[800],
+            Flexible( // ← Wraps the first Text
+              child: Text(
+                product.name,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[800],
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
             SizedBox(height: 2),
             Text(
@@ -488,7 +495,7 @@ class _HomeScreenState extends State<HomeScreen> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            Spacer(),
+            SizedBox(height: 2), // ← Replaced Spacer() with fixed gap
             _buildProductPrice(product, displayPrice, hasDiscount),
           ],
         ),
