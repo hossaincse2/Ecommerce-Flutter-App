@@ -21,6 +21,7 @@ import 'package:karbar_shop/screens/splash_screen.dart';
 import 'package:karbar_shop/screens/auth/profile_update_screen.dart';
 
 import 'services/api_service.dart';
+import 'services/order_api_service.dart';  // Add this import
 import 'services/auth_manager.dart';
 import 'utils/logger.dart';
 import 'config/app_config.dart';
@@ -40,10 +41,13 @@ Future<void> _initializeApp() async {
     // Initialize API service
     ApiService.initialize();
 
+    // Initialize Order API service with authentication
+    await OrderApiService.initialize();
+
     // Log app initialization
     Logger.logInfo('App initialized with environment: ${AppConfig.environment}');
     Logger.logInfo('Base URL: ${AppConfig.baseUrl}');
-    Logger.logSuccess('API service initialized successfully');
+    Logger.logSuccess('API services initialized successfully');
   } catch (e) {
     Logger.logError('Failed to initialize app services', e);
   }
@@ -276,6 +280,7 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     ApiService.dispose();
+    OrderApiService.dispose();
     super.dispose();
   }
 
@@ -293,6 +298,7 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager>
       case AppLifecycleState.detached:
         Logger.logInfo('App detached');
         ApiService.dispose();
+        OrderApiService.dispose();
         break;
       default:
         break;

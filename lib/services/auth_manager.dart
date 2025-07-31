@@ -29,7 +29,7 @@ class AuthManager extends ChangeNotifier {
   String? get token => _token;
   User? get user => _user;
   String? get tokenExpiry => _tokenExpiry;
-  bool get isLoggedIn => _isLoggedIn;
+  bool get isLoggedIn => _isLoggedIn && _token != null && !_isTokenExpired();
   bool get isLoading => _isLoading;
   bool get isInitialized => _isInitialized;
 
@@ -58,9 +58,54 @@ class AuthManager extends ChangeNotifier {
     } catch (e) {
       Logger.logError('Failed to initialize AuthManager', e);
       await _clearAuthData();
+      _isInitialized = true; // Still mark as initialized even if failed
     }
 
     notifyListeners();
+  }
+
+  // ================ ORDER API COMPATIBILITY METHODS ================
+
+  /// Get the authentication token for API requests
+  /// This method is specifically for OrderApiService compatibility
+  Future<String?> getToken() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
+    if (!hasValidToken()) {
+      return null;
+    }
+
+    return _token;
+  }
+
+  /// Check if user has a valid, non-expired token
+  /// Enhanced version for OrderApiService compatibility
+  bool hasValidToken() {
+    if (!_isInitialized) {
+      return false;
+    }
+
+    return _token != null &&
+        _token!.isNotEmpty &&
+        _isLoggedIn &&
+        !_isTokenExpired();
+  }
+
+  /// Get authentication headers for API requests
+  /// Enhanced version with better error handling
+  Future<Map<String, String>> getAuthHeaders() async {
+    final baseHeaders = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
+
+    if (hasValidToken() && _token != null) {
+      baseHeaders['Authorization'] = 'Bearer $_token';
+    }
+
+    return baseHeaders;
   }
 
   // ================ LOGIN ================
@@ -109,7 +154,11 @@ class AuthManager extends ChangeNotifier {
 
       // Call logout API if token exists
       if (_token != null) {
-        await AuthService.logout(_token!);
+        try {
+          await AuthService.logout(_token!);
+        } catch (e) {
+          Logger.logWarning('Logout API call failed, but continuing with local cleanup', e);
+        }
       }
 
       // Clear local auth data
@@ -128,8 +177,8 @@ class AuthManager extends ChangeNotifier {
   // ================ REFRESH USER DATA ================
 
   Future<bool> refreshUserData() async {
-    if (!_isLoggedIn || _token == null) {
-      Logger.logWarning('Cannot refresh user data - not logged in');
+    if (!hasValidToken() || _token == null) {
+      Logger.logWarning('Cannot refresh user data - not logged in or invalid token');
       return false;
     }
 
@@ -150,6 +199,7 @@ class AuthManager extends ChangeNotifier {
 
       // If token is invalid, logout
       if (AuthService.isAuthError(e)) {
+        Logger.logWarning('Token invalid during user data refresh, logging out');
         await logout();
       }
 
@@ -166,8 +216,8 @@ class AuthManager extends ChangeNotifier {
     required String email,
     String? phone,
   }) async {
-    if (!_isLoggedIn || _token == null) {
-      Logger.logWarning('Cannot update profile - not logged in');
+    if (!hasValidToken() || _token == null) {
+      Logger.logWarning('Cannot update profile - not logged in or invalid token');
       return false;
     }
 
@@ -193,6 +243,7 @@ class AuthManager extends ChangeNotifier {
 
       // If token is invalid, logout
       if (AuthService.isAuthError(e)) {
+        Logger.logWarning('Token invalid during profile update, logging out');
         await logout();
       }
 
@@ -205,8 +256,8 @@ class AuthManager extends ChangeNotifier {
   // ================ UPLOAD AVATAR ================
 
   Future<String?> uploadAvatar(String imagePath) async {
-    if (!_isLoggedIn || _token == null) {
-      Logger.logWarning('Cannot upload avatar - not logged in');
+    if (!hasValidToken() || _token == null) {
+      Logger.logWarning('Cannot upload avatar - not logged in or invalid token');
       return null;
     }
 
@@ -233,6 +284,7 @@ class AuthManager extends ChangeNotifier {
 
       // If token is invalid, logout
       if (AuthService.isAuthError(e)) {
+        Logger.logWarning('Token invalid during avatar upload, logging out');
         await logout();
       }
 
@@ -245,40 +297,69 @@ class AuthManager extends ChangeNotifier {
   // ================ TOKEN VALIDATION ================
 
   Future<bool> validateToken() async {
+    if (!_isInitialized) {
+      await initialize();
+    }
+
     if (!_isLoggedIn || _token == null) {
+      Logger.logInfo('Token validation failed - not logged in or no token');
       return false;
     }
 
     if (_isTokenExpired()) {
-      Logger.logWarning('Token expired');
+      Logger.logWarning('Token expired during validation');
       await logout();
       return false;
     }
 
-    return true;
+    // Verify with server
+    try {
+      await _verifyTokenWithServer();
+      Logger.logInfo('Token validation successful');
+      return true;
+    } catch (e) {
+      Logger.logWarning('Token validation failed with server');
+      if (AuthService.isAuthError(e)) {
+        await logout();
+      }
+      return false;
+    }
   }
 
   bool _isTokenExpired() {
-    if (_tokenExpiry == null) return false;
+    if (_tokenExpiry == null) {
+      Logger.logInfo('No token expiry set, assuming token is valid');
+      return false;
+    }
 
     try {
       final expiryDate = DateTime.parse(_tokenExpiry!);
       final now = DateTime.now();
-      return now.isAfter(expiryDate);
+      final isExpired = now.isAfter(expiryDate);
+
+      if (isExpired) {
+        Logger.logWarning('Token expired: $expiryDate vs current: $now');
+      }
+
+      return isExpired;
     } catch (e) {
-      Logger.logError('Error parsing token expiry date', e);
+      Logger.logError('Error parsing token expiry date: $_tokenExpiry', e);
       return false;
     }
   }
 
   Future<void> _verifyTokenWithServer() async {
     try {
+      if (_token == null) {
+        throw Exception('No token available for verification');
+      }
+
       await AuthService.getUserDetails(_token!);
-      Logger.logInfo('Token verified with server');
+      Logger.logInfo('Token verified with server successfully');
     } catch (e) {
-      Logger.logWarning('Token verification failed with server');
+      Logger.logWarning('Token verification failed with server: $e');
       if (AuthService.isAuthError(e)) {
-        await logout();
+        throw e; // Re-throw auth errors to trigger logout
       }
     }
   }
@@ -303,16 +384,24 @@ class AuthManager extends ChangeNotifier {
     _isLoggedIn = true;
 
     await _saveAuthDataToStorage();
+    Logger.logInfo('Auth data set successfully for user: ${user.username}');
     notifyListeners();
   }
 
   Future<void> _clearAuthData() async {
+    final wasLoggedIn = _isLoggedIn;
+
     _token = null;
     _user = null;
     _tokenExpiry = null;
     _isLoggedIn = false;
 
     await _clearAuthDataFromStorage();
+
+    if (wasLoggedIn) {
+      Logger.logInfo('Auth data cleared - user logged out');
+    }
+
     notifyListeners();
   }
 
@@ -336,7 +425,7 @@ class AuthManager extends ChangeNotifier {
 
       await prefs.setBool(_isLoggedInKey, _isLoggedIn);
 
-      Logger.logInfo('Auth data saved to storage');
+      Logger.logInfo('Auth data saved to storage successfully');
     } catch (e) {
       Logger.logError('Failed to save auth data to storage', e);
     }
@@ -347,6 +436,7 @@ class AuthManager extends ChangeNotifier {
       if (_user != null) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString(_userKey, json.encode(_user!.toJson()));
+        Logger.logInfo('User data saved to storage');
         notifyListeners();
       }
     } catch (e) {
@@ -369,10 +459,11 @@ class AuthManager extends ChangeNotifier {
           _user = User.fromJson(userData);
         } catch (e) {
           Logger.logError('Failed to parse user data from storage', e);
+          _user = null;
         }
       }
 
-      Logger.logInfo('Auth data loaded from storage - IsLoggedIn: $_isLoggedIn');
+      Logger.logInfo('Auth data loaded from storage - IsLoggedIn: $_isLoggedIn, HasToken: ${_token != null}');
     } catch (e) {
       Logger.logError('Failed to load auth data from storage', e);
     }
@@ -392,14 +483,16 @@ class AuthManager extends ChangeNotifier {
     }
   }
 
-  // ================ UTILITY METHODS ================
+  // ================ UTILITY METHODS (LEGACY SUPPORT) ================
 
+  /// Legacy method - use getToken() instead for new code
   String? getAuthToken() {
     return _token;
   }
 
-  Map<String, String> getAuthHeaders() {
-    if (_token != null) {
+  /// Legacy method - use getAuthHeaders() instead for new code
+  Map<String, String> getAuthHeadersSync() {
+    if (_token != null && hasValidToken()) {
       return {
         'Authorization': 'Bearer $_token',
         'Accept': 'application/json',
@@ -412,12 +505,25 @@ class AuthManager extends ChangeNotifier {
     };
   }
 
-  bool hasValidToken() {
-    return _token != null && _isLoggedIn && !_isTokenExpired();
+  // ================ DEBUG METHODS ================
+
+  void debugPrintAuthState() {
+    if (kDebugMode) {
+      Logger.logInfo('=== AuthManager Debug State ===');
+      Logger.logInfo('Initialized: $_isInitialized');
+      Logger.logInfo('Is Logged In: $_isLoggedIn');
+      Logger.logInfo('Has Token: ${_token != null}');
+      Logger.logInfo('Token Expired: ${_isTokenExpired()}');
+      Logger.logInfo('Has Valid Token: ${hasValidToken()}');
+      Logger.logInfo('User: ${_user?.username ?? 'null'}');
+      Logger.logInfo('Token Expiry: $_tokenExpiry');
+      Logger.logInfo('===============================');
+    }
   }
 
   // ================ CLEANUP ================
 
+  @override
   void dispose() {
     Logger.logInfo('AuthManager disposed');
     super.dispose();

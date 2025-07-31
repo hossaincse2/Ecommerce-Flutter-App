@@ -1,3 +1,4 @@
+// services/api_service.dart - Updated to include order integration
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -5,16 +6,34 @@ import 'package:http/http.dart' as http;
 import '../models/product.dart';
 import '../models/category.dart';
 import '../models/hero_image.dart';
+import '../models/order.dart';
+import '../models/order_details.dart';
 import '../config/app_config.dart';
 import '../constants/api_constants.dart';
 import '../models/product_details.dart';
 import '../services/api_client.dart';
+import '../services/order_api_service.dart';
 import '../utils/logger.dart';
 
 class ApiService {
   static final ApiClient _apiClient = ApiClient();
 
+  // ================ INITIALIZATION ================
+
+  static void initialize() {
+    _apiClient.initialize();
+    OrderApiService.initialize();
+    Logger.logInfo('ApiService initialized with Order integration');
+  }
+
+  static void dispose() {
+    _apiClient.dispose();
+    OrderApiService.dispose();
+    Logger.logInfo('ApiService disposed');
+  }
+
   // ================ PRODUCTS API ================
+  // [Keep all existing product methods as they were]
 
   static Future<List<Product>> getProducts({
     int perPage = 12,
@@ -212,7 +231,7 @@ class ApiService {
     );
   }
 
-// ================ PRODUCT DETAILS API ================
+  // ================ PRODUCT DETAILS API ================
 
   static Future<ProductDetails> getProductDetails(String slug) async {
     try {
@@ -403,6 +422,60 @@ class ApiService {
     }
   }
 
+  // ================ ORDER API INTEGRATION ================
+
+  /// Get user orders using OrderApiService
+  static Future<List<Order>> getUserOrders({
+    String filter = 'all',
+    int page = 1,
+    int perPage = 10,
+  }) async {
+    try {
+      final response = await OrderApiService.getUserOrders(
+        filter: filter,
+        page: page,
+        perPage: perPage,
+      );
+      return response.data;
+    } catch (e) {
+      Logger.logError('Error fetching user orders via ApiService', e);
+      rethrow;
+    }
+  }
+
+  /// Get order details using OrderApiService
+  static Future<OrderDetails> getOrderDetails(int orderId) async {
+    try {
+      return await OrderApiService.getOrderDetails(orderId);
+    } catch (e) {
+      Logger.logError('Error fetching order details via ApiService', e);
+      rethrow;
+    }
+  }
+
+  /// Cancel order using OrderApiService
+  static Future<bool> cancelOrder(int orderId) async {
+    try {
+      return await OrderApiService.cancelOrder(orderId);
+    } catch (e) {
+      Logger.logError('Error cancelling order via ApiService', e);
+      rethrow;
+    }
+  }
+
+  /// Search orders using OrderApiService
+  static Future<List<Order>> searchOrders(String query, {
+    int page = 1,
+    int perPage = 10,
+  }) async {
+    try {
+      return await OrderApiService.searchOrders(query, page: page, perPage: perPage);
+    } catch (e) {
+      Logger.logError('Error searching orders via ApiService', e);
+      rethrow;
+    }
+  }
+
   // ================ HELPER METHODS ================
 
   static String _mapSortByValue(String sortBy) {
@@ -487,16 +560,23 @@ class ApiService {
     }
   }
 
-  // ================ UTILITY METHODS ================
+  // ================ CACHE MANAGEMENT ================
 
-  static void initialize() {
-    _apiClient.initialize();
-    Logger.logInfo('ApiService initialized');
+  static void clearCache() {
+    // Clear both product and order caches
+    Logger.logInfo('Cache cleared for products and orders');
+    OrderApiService.refreshOrders(); // Also refresh order cache
   }
 
-  static void dispose() {
-    _apiClient.dispose();
-    Logger.logInfo('ApiService disposed');
+  static Future<void> refreshData() async {
+    try {
+      clearCache();
+      await OrderApiService.refreshOrders();
+      Logger.logInfo('Data refresh initiated for all services');
+    } catch (e) {
+      Logger.logError('Error refreshing data', e);
+      throw ApiException('Failed to refresh data: $e');
+    }
   }
 
   // ================ ERROR HANDLING ================
@@ -526,21 +606,27 @@ class ApiService {
     return false;
   }
 
-  // ================ CACHE MANAGEMENT ================
+  // ================ COMPREHENSIVE ERROR HANDLING ================
 
-  static void clearCache() {
-    // Implement cache clearing if you have caching mechanism
-    Logger.logInfo('Cache cleared');
+  static bool isAuthenticationError(dynamic error) {
+    return OrderApiService.isAuthenticationError(error);
   }
 
-  static Future<void> refreshData() async {
-    try {
-      clearCache();
-      Logger.logInfo('Data refresh initiated');
-    } catch (e) {
-      Logger.logError('Error refreshing data', e);
-      throw ApiException('Failed to refresh data: $e');
-    }
+  static bool isOrderRelatedError(dynamic error) {
+    return OrderApiService.isOrderNotFoundError(error);
+  }
+
+  // ================ UNIFIED ERROR RESPONSE ================
+
+  static Map<String, dynamic> getErrorDetails(dynamic error) {
+    return {
+      'message': getErrorMessage(error),
+      'isNetwork': isNetworkError(error),
+      'isValidation': isValidationError(error),
+      'isAuth': isAuthenticationError(error),
+      'isOrderRelated': isOrderRelatedError(error),
+      'timestamp': DateTime.now().toIso8601String(),
+    };
   }
 }
 

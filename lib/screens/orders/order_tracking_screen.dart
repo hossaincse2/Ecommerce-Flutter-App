@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
 import '../../constants/app_constants.dart';
 import '../../utils/ui_utils.dart';
 import '../../widgets/common/loading_widgets.dart';
 import '../../widgets/common/shared_widgets.dart';
+import '../../models/order_details.dart';
+import '../../models/order_tracking.dart';
+import '../../models/order_item.dart';
+import '../../services/order_api_service.dart';
 
 class OrderTrackingScreen extends StatefulWidget {
   final String orderId;
@@ -14,64 +20,8 @@ class OrderTrackingScreen extends StatefulWidget {
 
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   bool isLoading = true;
-
-  // Mock order tracking data - replace with actual data model
-  Map<String, dynamic> orderData = {
-    'id': 'ORD002',
-    'status': 'shipped',
-    'estimatedDelivery': '2024-02-05',
-    'trackingNumber': 'TRK123456789',
-    'courier': 'FastDelivery Express',
-    'orderDate': '2024-01-20',
-    'total': 149.50,
-    'shippingAddress': '123 Main St, City, State 12345',
-    'items': [
-      {
-        'name': 'Smart Watch',
-        'image': 'https://example.com/watch.jpg',
-        'price': 149.50,
-        'quantity': 1,
-      }
-    ],
-  };
-
-  List<Map<String, dynamic>> trackingSteps = [
-    {
-      'title': 'Order Placed',
-      'subtitle': 'Your order has been placed successfully',
-      'time': '2024-01-20 10:30 AM',
-      'isCompleted': true,
-      'icon': Icons.shopping_cart,
-    },
-    {
-      'title': 'Order Confirmed',
-      'subtitle': 'Your order has been confirmed and is being prepared',
-      'time': '2024-01-20 11:15 AM',
-      'isCompleted': true,
-      'icon': Icons.check_circle,
-    },
-    {
-      'title': 'Shipped',
-      'subtitle': 'Your order has been shipped',
-      'time': '2024-01-22 02:45 PM',
-      'isCompleted': true,
-      'icon': Icons.local_shipping,
-    },
-    {
-      'title': 'Out for Delivery',
-      'subtitle': 'Your order is out for delivery',
-      'time': '2024-02-05 08:00 AM',
-      'isCompleted': false,
-      'icon': Icons.delivery_dining,
-    },
-    {
-      'title': 'Delivered',
-      'subtitle': 'Your order has been delivered',
-      'time': 'Expected by 6:00 PM',
-      'isCompleted': false,
-      'icon': Icons.done_all,
-    },
-  ];
+  OrderDetails? orderData;
+  String? errorMessage;
 
   @override
   void initState() {
@@ -80,12 +30,34 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Future<void> _loadOrderTracking() async {
-    // TODO: Implement API call to fetch order tracking data
-    await Future.delayed(Duration(seconds: 1)); // Simulate API call
+    try {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
 
-    setState(() {
-      isLoading = false;
-    });
+      final orderId = int.tryParse(widget.orderId);
+      if (orderId == null) {
+        throw Exception('Invalid order ID');
+      }
+
+      final details = await OrderApiService.getOrderDetails(orderId);
+
+      setState(() {
+        orderData = details;
+        isLoading = false;
+      });
+
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+        errorMessage = OrderApiService.getErrorMessage(e);
+      });
+
+      if (mounted) {
+        UIUtils.showErrorSnackBar(context, errorMessage!);
+      }
+    }
   }
 
   @override
@@ -105,6 +77,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       ),
       body: isLoading
           ? LoadingWidgets.buildLoadingScreen(message: 'Loading tracking info...')
+          : errorMessage != null
+          ? _buildErrorState()
           : RefreshIndicator(
         onRefresh: _loadOrderTracking,
         color: AppConstants.primaryColor,
@@ -125,7 +99,58 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 64,
+            color: Colors.red.shade300,
+          ),
+          SizedBox(height: 16),
+          Text(
+            'Failed to load tracking info',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppConstants.textPrimaryColor,
+            ),
+          ),
+          SizedBox(height: 8),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              errorMessage!,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: AppConstants.textSecondaryColor,
+              ),
+            ),
+          ),
+          SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: _loadOrderTracking,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppConstants.primaryColor,
+            ),
+            child: Text(
+              'Retry',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOrderHeader() {
+    if (orderData == null) return SizedBox.shrink();
+
+    final order = orderData!;
+
     return Container(
       margin: EdgeInsets.all(AppConstants.defaultPadding),
       padding: EdgeInsets.all(AppConstants.defaultPadding),
@@ -141,19 +166,19 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Order #${orderData['id']}',
+                'Order #${order.orderNumber}',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: AppConstants.textPrimaryColor,
                 ),
               ),
-              _buildStatusChip(orderData['status']),
+              _buildStatusChip(order.displayStatus),
             ],
           ),
           SizedBox(height: 8),
           Text(
-            'Placed on ${orderData['orderDate']}',
+            'Placed on ${order.orderAt}',
             style: TextStyle(
               fontSize: 14,
               color: AppConstants.textSecondaryColor,
@@ -161,7 +186,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           ),
           SizedBox(height: 4),
           Text(
-            'Total: \$${orderData['total'].toStringAsFixed(2)}',
+            'Total: \$${order.totalAmount.toStringAsFixed(2)}',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -174,6 +199,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildTrackingInfo() {
+    if (orderData == null) return SizedBox.shrink();
+
+    final order = orderData!;
+    final hasTrackingNumber = order.orderNumber.isNotEmpty;
+
     return Container(
       margin: EdgeInsets.symmetric(horizontal: AppConstants.defaultPadding),
       padding: EdgeInsets.all(AppConstants.defaultPadding),
@@ -184,52 +214,54 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       ),
       child: Column(
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.local_shipping,
-                color: AppConstants.primaryColor,
-                size: 24,
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Tracking Number',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppConstants.textSecondaryColor,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Text(
-                      orderData['trackingNumber'],
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppConstants.textPrimaryColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: () => _copyTrackingNumber(),
-                icon: Icon(
-                  Icons.copy,
+          if (hasTrackingNumber) ...[
+            Row(
+              children: [
+                Icon(
+                  Icons.local_shipping,
                   color: AppConstants.primaryColor,
-                  size: 20,
+                  size: 24,
                 ),
-              ),
-            ],
-          ),
-          SizedBox(height: 12),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Order Number',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppConstants.textSecondaryColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Text(
+                        order.orderNumber,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppConstants.textPrimaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => _copyTrackingNumber(order.orderNumber),
+                  icon: Icon(
+                    Icons.copy,
+                    color: AppConstants.primaryColor,
+                    size: 20,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 12),
+          ],
           Row(
             children: [
               Icon(
-                Icons.schedule,
+                Icons.location_on,
                 color: AppConstants.primaryColor,
                 size: 24,
               ),
@@ -239,7 +271,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Estimated Delivery',
+                      'Delivery Location',
                       style: TextStyle(
                         fontSize: 12,
                         color: AppConstants.textSecondaryColor,
@@ -247,7 +279,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                       ),
                     ),
                     Text(
-                      orderData['estimatedDelivery'],
+                      _formatDeliveryLocation(order.deliveryLocation),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -263,7 +295,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           Row(
             children: [
               Icon(
-                Icons.business,
+                Icons.payment,
                 color: AppConstants.primaryColor,
                 size: 24,
               ),
@@ -273,7 +305,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Courier',
+                      'Payment Method',
                       style: TextStyle(
                         fontSize: 12,
                         color: AppConstants.textSecondaryColor,
@@ -281,7 +313,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                       ),
                     ),
                     Text(
-                      orderData['courier'],
+                      order.paymentMethod.toUpperCase(),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -298,7 +330,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
+  String _formatDeliveryLocation(String location) {
+    return location.replaceAll('_', ' ').split(' ').map((word) =>
+    word[0].toUpperCase() + word.substring(1).toLowerCase()).join(' ');
+  }
+
   Widget _buildTrackingTimeline() {
+    if (orderData == null || orderData!.orderTracking.isEmpty) {
+      return _buildDefaultTimeline();
+    }
+
+    final order = orderData!;
+
     return Container(
       margin: EdgeInsets.all(AppConstants.defaultPadding),
       padding: EdgeInsets.all(AppConstants.defaultPadding),
@@ -319,17 +362,125 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             ),
           ),
           SizedBox(height: 16),
-          _buildTimeline(),
+          _buildTimelineFromTracking(order.orderTracking),
         ],
       ),
     );
   }
 
-  Widget _buildTimeline() {
+  Widget _buildDefaultTimeline() {
+    if (orderData == null) return SizedBox.shrink();
+
+    final order = orderData!;
+    final currentStatus = order.status.toLowerCase();
+
+    // Create default timeline based on current status
+    final List<Map<String, dynamic>> defaultSteps = [
+      {
+        'title': 'Order Placed',
+        'subtitle': 'Your order has been placed successfully',
+        'time': order.orderAt,
+        'isCompleted': true,
+        'icon': Icons.shopping_cart,
+      },
+    ];
+
+    // Add steps based on current status
+    if (['processed', 'delivered', 'completed'].contains(currentStatus)) {
+      defaultSteps.add({
+        'title': 'Order Confirmed',
+        'subtitle': 'Your order has been confirmed and is being prepared',
+        'time': order.orderAt,
+        'isCompleted': true,
+        'icon': Icons.check_circle,
+      });
+    }
+
+    if (['delivered', 'completed'].contains(currentStatus)) {
+      defaultSteps.add({
+        'title': 'Delivered',
+        'subtitle': 'Your order has been delivered successfully',
+        'time': 'Delivered',
+        'isCompleted': true,
+        'icon': Icons.done_all,
+      });
+    } else if (currentStatus == 'processed') {
+      defaultSteps.add({
+        'title': 'Out for Delivery',
+        'subtitle': 'Your order is out for delivery',
+        'time': 'In Progress',
+        'isCompleted': false,
+        'icon': Icons.delivery_dining,
+      });
+    } else if (currentStatus == 'cancelled') {
+      defaultSteps.add({
+        'title': 'Cancelled',
+        'subtitle': 'Your order has been cancelled',
+        'time': 'Cancelled',
+        'isCompleted': true,
+        'icon': Icons.cancel,
+      });
+    }
+
+    return Container(
+      margin: EdgeInsets.all(AppConstants.defaultPadding),
+      padding: EdgeInsets.all(AppConstants.defaultPadding),
+      decoration: BoxDecoration(
+        color: AppConstants.cardColor,
+        borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
+        boxShadow: AppConstants.categoryShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Order Status',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppConstants.textPrimaryColor,
+            ),
+          ),
+          SizedBox(height: 16),
+          _buildTimeline(defaultSteps),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimelineFromTracking(List<OrderTracking> trackingList) {
+    final steps = trackingList.map((tracking) => {
+      'title': tracking.status,
+      'subtitle': tracking.note,
+      'time': tracking.displayTime,
+      'isCompleted': true,
+      'icon': _getIconForStatus(tracking.status),
+    }).toList();
+
+    return _buildTimeline(steps);
+  }
+
+  IconData _getIconForStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Icons.shopping_cart;
+      case 'processed':
+        return Icons.check_circle;
+      case 'delivered':
+      case 'completed':
+        return Icons.done_all;
+      case 'cancelled':
+        return Icons.cancel;
+      default:
+        return Icons.radio_button_checked;
+    }
+  }
+
+  Widget _buildTimeline(List<Map<String, dynamic>> steps) {
     return Column(
-      children: List.generate(trackingSteps.length, (index) {
-        final step = trackingSteps[index];
-        final isLast = index == trackingSteps.length - 1;
+      children: List.generate(steps.length, (index) {
+        final step = steps[index];
+        final isLast = index == steps.length - 1;
 
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -407,6 +558,10 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Widget _buildOrderItems() {
+    if (orderData == null || orderData!.orderItems.isEmpty) return SizedBox.shrink();
+
+    final order = orderData!;
+
     return Container(
       margin: EdgeInsets.all(AppConstants.defaultPadding),
       padding: EdgeInsets.all(AppConstants.defaultPadding),
@@ -419,7 +574,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Order Items (${orderData['items'].length})',
+            'Order Items (${order.orderItems.length})',
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -428,63 +583,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           ),
           SizedBox(height: 16),
           Column(
-            children: orderData['items'].map<Widget>((item) {
-              return Padding(
-                padding: EdgeInsets.only(bottom: 16),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 60,
-                      height: 60,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        color: Colors.grey.shade200,
-                        image: item['image'] != null
-                            ? DecorationImage(
-                          image: NetworkImage(item['image']),
-                          fit: BoxFit.cover,
-                        )
-                            : null,
-                      ),
-                      child: item['image'] == null
-                          ? Icon(Icons.image, color: Colors.grey.shade400)
-                          : null,
-                    ),
-                    SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item['name'],
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: AppConstants.textPrimaryColor,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Qty: ${item['quantity']}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: AppConstants.textSecondaryColor,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Text(
-                      '\$${item['price'].toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppConstants.primaryColor,
-                      ),
-                    ),
-                  ],
-                ),
-              );
+            children: order.orderItems.map<Widget>((item) {
+              return _buildOrderItem(item);
             }).toList(),
           ),
         ],
@@ -492,7 +592,72 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
+  Widget _buildOrderItem(OrderItem item) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.grey.shade200,
+              image: item.productImage.isNotEmpty
+                  ? DecorationImage(
+                image: NetworkImage(item.productImage),
+                fit: BoxFit.cover,
+              )
+                  : null,
+            ),
+            child: item.productImage.isEmpty
+                ? Icon(Icons.shopping_bag_outlined, color: Colors.grey.shade400)
+                : null,
+          ),
+          SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.productName,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: AppConstants.textPrimaryColor,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Qty: ${item.quantity}',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppConstants.textSecondaryColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '\$${item.total.toStringAsFixed(2)}',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: AppConstants.primaryColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDeliveryAddress() {
+    if (orderData == null) return SizedBox.shrink();
+
+    final customer = orderData!.customer;
+
     return Container(
       margin: EdgeInsets.all(AppConstants.defaultPadding),
       padding: EdgeInsets.all(AppConstants.defaultPadding),
@@ -523,12 +688,38 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               ),
               SizedBox(width: 16),
               Expanded(
-                child: Text(
-                  orderData['shippingAddress'],
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: AppConstants.textPrimaryColor,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      customer.name,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppConstants.textPrimaryColor,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      customer.address,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppConstants.textSecondaryColor,
+                        height: 1.4,
+                      ),
+                    ),
+                    if (customer.phone.isNotEmpty) ...[
+                      SizedBox(height: 4),
+                      Text(
+                        customer.phone,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppConstants.textPrimaryColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ],
@@ -587,13 +778,16 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
-  void _copyTrackingNumber() {
-    // TODO: Implement copy to clipboard
-    UIUtils.showSuccessSnackBar(context, 'Tracking number copied to clipboard');
+  void _copyTrackingNumber(String orderNumber) {
+    Clipboard.setData(ClipboardData(text: orderNumber));
+    UIUtils.showSuccessSnackBar(context, 'Order number copied to clipboard');
   }
 
   void _shareTracking() {
-    // TODO: Implement share functionality
-    UIUtils.showInfoSnackBar(context, 'Sharing tracking information');
+    if (orderData != null) {
+      final trackingInfo = 'Order #${orderData!.orderNumber}\nStatus: ${orderData!.displayStatus}';
+      // Implement actual sharing functionality here
+      UIUtils.showInfoSnackBar(context, 'Sharing tracking information...');
+    }
   }
 }
