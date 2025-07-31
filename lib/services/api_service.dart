@@ -33,26 +33,31 @@ class ApiService {
         'business_category': businessCategory,
       };
 
-      if (category != null && category.isNotEmpty && category != 'all') {
-        queryParams['category'] = category;
+      // Add search parameter if provided
+      if (search != null && search.trim().isNotEmpty) {
+        queryParams['search'] = search.trim();
       }
 
-      if (brand != null && brand.isNotEmpty && brand != 'all') {
-        queryParams['brand'] = brand;
+      // Add category filter if provided and not 'all'
+      if (category != null && category.trim().isNotEmpty && category.toLowerCase() != 'all') {
+        queryParams['category'] = category.trim();
       }
 
-      if (sortBy != null && sortBy.isNotEmpty) {
-        queryParams['sort_by'] = sortBy;
+      // Add brand filter if provided and not 'all'
+      if (brand != null && brand.trim().isNotEmpty && brand.toLowerCase() != 'all') {
+        queryParams['brand'] = brand.trim();
       }
 
-      if (search != null && search.isNotEmpty) {
-        queryParams['search'] = search;
+      // Add sort parameter if provided
+      if (sortBy != null && sortBy.trim().isNotEmpty) {
+        queryParams['sort_by'] = _mapSortByValue(sortBy.trim());
       }
 
       // Build the URL
       final uri = Uri.parse('${AppConfig.baseUrl}${AppConfig.productsEndpoint}')
           .replace(queryParameters: queryParams);
 
+      Logger.logInfo('Fetching products with URL: $uri');
 
       final response = await http.get(
         uri,
@@ -60,6 +65,7 @@ class ApiService {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
           'User-Agent': 'Karbar-Shop-App/1.0.0',
+          'Cache-Control': 'no-cache',
         },
       ).timeout(AppConfig.connectionTimeout);
 
@@ -78,16 +84,132 @@ class ApiService {
           productsJson = data;
         }
 
-        return productsJson
+        final products = productsJson
             .map((json) => Product.fromJson(json as Map<String, dynamic>))
             .toList();
+
+        Logger.logSuccess('Successfully fetched ${products.length} products');
+        return products;
       } else {
+        Logger.logError('Failed to load products: HTTP ${response.statusCode}', null);
         throw Exception('Failed to load products: HTTP ${response.statusCode}');
       }
     } catch (e) {
-      print('Error in getProducts: $e');
+      Logger.logError('Error in getProducts', e);
       throw Exception('Failed to load products: $e');
     }
+  }
+
+  // ================ ENHANCED SEARCH API ================
+
+  static Future<List<Product>> searchProducts(
+      String searchQuery, {
+        String? category,
+        String? brand,
+        String? sortBy,
+        int page = 1,
+        int perPage = 12,
+        String businessCategory = 'default',
+      }) async {
+
+    if (searchQuery.trim().isEmpty) {
+      throw ApiException('Search query cannot be empty');
+    }
+
+    Logger.logInfo('Searching products with query: "$searchQuery"');
+
+    return getProducts(
+      search: searchQuery.trim(),
+      category: category,
+      brand: brand,
+      sortBy: sortBy,
+      page: page,
+      perPage: perPage,
+      businessCategory: businessCategory,
+    );
+  }
+
+  // ================ CATEGORY PRODUCTS API ================
+
+  static Future<List<Product>> getProductsByCategory(
+      String categorySlug, {
+        String? brand,
+        String? sortBy,
+        String? search,
+        int page = 1,
+        int perPage = 12,
+        String businessCategory = 'default',
+      }) async {
+
+    if (categorySlug.trim().isEmpty) {
+      throw ApiException('Category slug cannot be empty');
+    }
+
+    Logger.logInfo('Fetching products for category: "$categorySlug"');
+
+    return getProducts(
+      category: categorySlug,
+      brand: brand,
+      sortBy: sortBy,
+      search: search,
+      page: page,
+      perPage: perPage,
+      businessCategory: businessCategory,
+    );
+  }
+
+  // ================ BRAND PRODUCTS API ================
+
+  static Future<List<Product>> getProductsByBrand(
+      String brandName, {
+        String? category,
+        String? sortBy,
+        String? search,
+        int page = 1,
+        int perPage = 12,
+        String businessCategory = 'default',
+      }) async {
+
+    if (brandName.trim().isEmpty) {
+      throw ApiException('Brand name cannot be empty');
+    }
+
+    Logger.logInfo('Fetching products for brand: "$brandName"');
+
+    return getProducts(
+      brand: brandName,
+      category: category,
+      sortBy: sortBy,
+      search: search,
+      page: page,
+      perPage: perPage,
+      businessCategory: businessCategory,
+    );
+  }
+
+  // ================ FILTERED PRODUCTS API ================
+
+  static Future<List<Product>> getFilteredProducts({
+    String? search,
+    String? category,
+    String? brand,
+    String? sortBy,
+    int page = 1,
+    int perPage = 12,
+    String businessCategory = 'default',
+  }) async {
+
+    Logger.logInfo('Fetching filtered products - Search: "$search", Category: "$category", Brand: "$brand", Sort: "$sortBy"');
+
+    return getProducts(
+      search: search,
+      category: category,
+      brand: brand,
+      sortBy: sortBy,
+      page: page,
+      perPage: perPage,
+      businessCategory: businessCategory,
+    );
   }
 
 // ================ PRODUCT DETAILS API ================
@@ -114,13 +236,7 @@ class ApiService {
           // Remove base URL as it's handled by ApiClient
           final path = endpoint.replaceFirst(AppConfig.baseUrl, '');
 
-          // Set default headers in ApiClient initialization or modify the get() method
-          final response = await _apiClient.get(
-            path,
-            // If your ApiClient.get() doesn't support headers, you'll need to:
-            // 1. Either modify the ApiClient to support headers
-            // 2. Or set default headers when initializing the ApiClient
-          );
+          final response = await _apiClient.get(path);
 
           // Handle both direct data and wrapped data responses
           final productData = response['data'] ?? response;
@@ -150,7 +266,6 @@ class ApiService {
       throw ApiException('Failed to fetch product details: $e');
     }
   }
-
 
   // ================ SUBMIT REVIEW API ================
 
@@ -195,6 +310,7 @@ class ApiService {
       throw ApiException('Failed to submit review: $e');
     }
   }
+
   // ================ CATEGORIES API ================
 
   static Future<List<Category>> getCategories({
@@ -252,49 +368,58 @@ class ApiService {
     }
   }
 
-  // ================ SEARCH API ================
+  // ================ BRANDS API ================
 
-  static Future<List<Product>> searchProducts(
-      String searchQuery, {
-        String category = ApiConstants.defaultCategory,
-        int page = AppConfig.defaultPage,
-        int perPage = AppConfig.defaultPerPage,
-        String sortBy = AppConfig.defaultSortBy,
-      }) async {
-    if (searchQuery.trim().isEmpty) {
-      throw ApiException('Search query cannot be empty');
+  static Future<List<String>> getAvailableBrands({
+    String? category,
+    String businessCategory = 'default',
+  }) async {
+    try {
+      Logger.logInfo('Fetching available brands');
+
+      // First get all products to extract brands
+      final products = await getProducts(
+        perPage: 100, // Get more products to collect all brands
+        page: 1,
+        category: category,
+        businessCategory: businessCategory,
+      );
+
+      // Extract unique brands
+      Set<String> brandsSet = {};
+      for (var product in products) {
+        if (product.brand.trim().isNotEmpty) {
+          brandsSet.add(product.brand.trim());
+        }
+      }
+
+      final brands = brandsSet.toList()..sort();
+      Logger.logSuccess('Successfully fetched ${brands.length} brands');
+      return brands;
+
+    } catch (e) {
+      Logger.logError('Error fetching brands', e);
+      throw ApiException('Failed to fetch brands: $e');
     }
-
-    return getProducts(
-      search: searchQuery.trim(),
-      category: category,
-      page: page,
-      perPage: perPage,
-      sortBy: sortBy,
-    );
-  }
-
-  // ================ CATEGORY PRODUCTS API ================
-
-  static Future<List<Product>> getProductsByCategory(
-      String categorySlug, {
-        int page = AppConfig.defaultPage,
-        int perPage = AppConfig.defaultPerPage,
-        String sortBy = AppConfig.defaultSortBy,
-      }) async {
-    if (categorySlug.trim().isEmpty) {
-      throw ApiException('Category slug cannot be empty');
-    }
-
-    return getProducts(
-      category: categorySlug,
-      page: page,
-      perPage: perPage,
-      sortBy: sortBy,
-    );
   }
 
   // ================ HELPER METHODS ================
+
+  static String _mapSortByValue(String sortBy) {
+    // Map frontend sort values to backend expected values
+    final sortMapping = {
+      'name_asc': 'name_asc',
+      'name_desc': 'name_desc',
+      'price_low_high': 'price_asc',
+      'price_high_low': 'price_desc',
+      'newest': 'created_desc',
+      'oldest': 'created_asc',
+      'popular': 'popular',
+      'rating': 'rating_desc',
+    };
+
+    return sortMapping[sortBy] ?? sortBy;
+  }
 
   static Map<String, String> _buildProductsQueryParams({
     required String search,
@@ -344,6 +469,24 @@ class ApiService {
     }
   }
 
+  static void _validateSearchQuery(String? query) {
+    if (query != null && query.trim().length < 2) {
+      throw ApiException('Search query must be at least 2 characters long');
+    }
+  }
+
+  static void _validateCategorySlug(String? slug) {
+    if (slug != null && slug.trim().isEmpty) {
+      throw ApiException('Category slug cannot be empty');
+    }
+  }
+
+  static void _validateBrandName(String? brand) {
+    if (brand != null && brand.trim().isEmpty) {
+      throw ApiException('Brand name cannot be empty');
+    }
+  }
+
   // ================ UTILITY METHODS ================
 
   static void initialize() {
@@ -373,4 +516,43 @@ class ApiService {
     }
     return false;
   }
+
+  static bool isValidationError(dynamic error) {
+    if (error is ApiException) {
+      return error.message.contains('must be') ||
+          error.message.contains('cannot be empty') ||
+          error.message.contains('invalid');
+    }
+    return false;
+  }
+
+  // ================ CACHE MANAGEMENT ================
+
+  static void clearCache() {
+    // Implement cache clearing if you have caching mechanism
+    Logger.logInfo('Cache cleared');
+  }
+
+  static Future<void> refreshData() async {
+    try {
+      clearCache();
+      Logger.logInfo('Data refresh initiated');
+    } catch (e) {
+      Logger.logError('Error refreshing data', e);
+      throw ApiException('Failed to refresh data: $e');
+    }
+  }
+}
+
+// ================ CUSTOM EXCEPTION CLASS ================
+
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  final String? endpoint;
+
+  ApiException(this.message, {this.statusCode, this.endpoint});
+
+  @override
+  String toString() => 'ApiException: $message';
 }
