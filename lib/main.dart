@@ -1,6 +1,6 @@
+// main.dart
 import 'package:flutter/material.dart';
 import 'package:karbar_shop/screens/account/my_account_screen.dart';
-import 'package:karbar_shop/screens/account/profile_update_screen.dart';
 import 'package:karbar_shop/screens/auth/forgot_password_screen.dart';
 import 'package:karbar_shop/screens/auth/login_screen.dart';
 import 'package:karbar_shop/screens/auth/registration_screen.dart';
@@ -17,26 +17,36 @@ import 'package:karbar_shop/screens/auth/profile_screen.dart';
 import 'package:karbar_shop/screens/settings/settings_screen.dart';
 import 'package:karbar_shop/screens/shop_screen.dart';
 import 'package:karbar_shop/screens/wishlist_screen.dart';
-// import 'package:karbar_shop/screens/wishlist_screen.dart';
-// import 'package:karbar_shop/screens/profile_screen.dart';
+import 'package:karbar_shop/screens/splash_screen.dart';
+import 'package:karbar_shop/screens/auth/profile_update_screen.dart';
+
 import 'services/api_service.dart';
+import 'services/auth_manager.dart';
 import 'utils/logger.dart';
 import 'config/app_config.dart';
 
-void main() {
+void main() async {
+  // Ensure binding is initialized
+  WidgetsFlutterBinding.ensureInitialized();
+
   // Initialize services
-  _initializeApp();
+  await _initializeApp();
 
   runApp(KarbarShopApp());
 }
 
-void _initializeApp() {
-  // Initialize API service
-  ApiService.initialize();
+Future<void> _initializeApp() async {
+  try {
+    // Initialize API service
+    ApiService.initialize();
 
-  // Log app initialization
-  Logger.logInfo('App initialized with environment: ${AppConfig.environment}');
-  Logger.logInfo('Base URL: ${AppConfig.baseUrl}');
+    // Log app initialization
+    Logger.logInfo('App initialized with environment: ${AppConfig.environment}');
+    Logger.logInfo('Base URL: ${AppConfig.baseUrl}');
+    Logger.logSuccess('API service initialized successfully');
+  } catch (e) {
+    Logger.logError('Failed to initialize app services', e);
+  }
 }
 
 class KarbarShopApp extends StatelessWidget {
@@ -50,11 +60,16 @@ class KarbarShopApp extends StatelessWidget {
         primaryColor: Color(0xFF2E86AB),
         fontFamily: 'Roboto',
         visualDensity: VisualDensity.adaptivePlatformDensity,
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.white,
+          foregroundColor: Color(0xFF2E86AB),
+          elevation: 1,
+        ),
       ),
       // Define your routes
       routes: {
-        '/': (context) => MainNavigationWrapper(),
-        '/home': (context) => HomeScreen(),
+        '/': (context) => SplashScreen(),
+        '/home': (context) => MainNavigationWrapper(),
         '/categories': (context) => CategoriesScreen(),
         '/wishlist': (context) => WishlistScreen(),
         '/profile': (context) => ProfileScreen(),
@@ -74,7 +89,7 @@ class KarbarShopApp extends StatelessWidget {
         '/cart': (context) => CartScreen(),
         '/checkout': (context) => CheckoutScreen(),
         '/my-account': (context) => MyAccountScreen(),
-        '/my-details': (context) => MyOrdersScreen(),
+        '/my-orders': (context) => MyOrdersScreen(),
         '/order-tracking': (context) {
           final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
           return OrderTrackingScreen(orderId: args['orderId']);
@@ -84,12 +99,15 @@ class KarbarShopApp extends StatelessWidget {
           return OrderDetailsScreen(orderId: args['orderId']);
         },
         '/update-profile': (context) => ProfileUpdateScreen(),
+        '/profile-update': (context) => ProfileUpdateScreen(),
         '/settings': (context) => SettingsScreen(),
       },
       initialRoute: '/',
     );
   }
 }
+
+
 
 class MainNavigationWrapper extends StatefulWidget {
   @override
@@ -99,18 +117,77 @@ class MainNavigationWrapper extends StatefulWidget {
 class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
   int _currentIndex = 0;
   final PageController _pageController = PageController();
+  final AuthManager _authManager = AuthManager();
+  bool _isInitialized = false;
 
   final List<Widget> _screens = [
     HomeScreen(),
     CategoriesScreen(),
     ShopScreen(),
-    MyOrdersScreen(),
+    ProfileScreen(),
   ];
+
+  final List<String> _titles = [
+    'Home',
+    'Categories',
+    'Shop',
+    'Profile',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeAuth();
+  }
+
+  Future<void> _initializeAuth() async {
+    try {
+      await _authManager.initialize();
+      setState(() {
+        _isInitialized = true;
+      });
+    } catch (e) {
+      Logger.logError('Error initializing auth in navigation', e);
+      setState(() {
+        _isInitialized = true;
+      });
+    }
+  }
 
   @override
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _onTabTapped(int index) {
+    // Check if user is trying to access profile
+    if (index == 3) {
+      if (!_isInitialized) {
+        // Still initializing, show loading
+        return;
+      }
+
+      if (!_authManager.isLoggedIn || !_authManager.hasValidToken()) {
+        // Not logged in, navigate to login screen
+        Navigator.pushNamed(context, '/login').then((_) {
+          // After returning from login, check if user is now logged in
+          if (_authManager.isLoggedIn) {
+            setState(() {
+              _currentIndex = 3;
+              _pageController.jumpToPage(3);
+            });
+          }
+        });
+        return;
+      }
+    }
+
+    // Normal navigation for other tabs or authenticated profile access
+    setState(() {
+      _currentIndex = index;
+      _pageController.jumpToPage(index);
+    });
   }
 
   @override
@@ -126,19 +203,13 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
           });
         },
       ),
-      // bottomNavigationBar:BottomNavigationWidget(currentIndex: 0,_pageController)
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         backgroundColor: Colors.white,
         selectedItemColor: Color(0xFF2E86AB),
         unselectedItemColor: Colors.grey[400],
         currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-            _pageController.jumpToPage(index);
-          });
-        },
+        onTap: _onTabTapped,
         items: [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
@@ -153,7 +224,28 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
             label: 'Shop',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
+            icon: Stack(
+              children: [
+                Icon(Icons.person_outline),
+                // Show a small indicator if not logged in
+                if (_isInitialized && !_authManager.isLoggedIn)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: BoxConstraints(
+                        minWidth: 8,
+                        minHeight: 8,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             label: 'Profile',
           ),
         ],
@@ -192,6 +284,8 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager>
     switch (state) {
       case AppLifecycleState.resumed:
         Logger.logInfo('App resumed');
+        // Check token validity when app resumes
+        _checkTokenValidity();
         break;
       case AppLifecycleState.paused:
         Logger.logInfo('App paused');
@@ -202,6 +296,15 @@ class _AppLifecycleManagerState extends State<AppLifecycleManager>
         break;
       default:
         break;
+    }
+  }
+
+  Future<void> _checkTokenValidity() async {
+    try {
+      final authManager = AuthManager();
+      await authManager.validateToken();
+    } catch (e) {
+      Logger.logError('Token validation error on app resume', e);
     }
   }
 

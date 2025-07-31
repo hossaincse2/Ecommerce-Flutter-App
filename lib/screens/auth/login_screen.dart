@@ -1,7 +1,11 @@
+// screens/auth/login_screen.dart
 import 'package:flutter/material.dart';
 import '../../constants/app_constants.dart';
 import '../../utils/ui_utils.dart';
 import '../../widgets/common/shared_widgets.dart';
+import '../../services/auth_manager.dart';
+import '../../services/auth_service.dart';
+import '../../utils/logger.dart';
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -10,34 +14,98 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  final _emailUsernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isPasswordHidden = true;
   bool _isLoading = false;
   bool _rememberMe = false;
 
+  final AuthManager _authManager = AuthManager();
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfAlreadyLoggedIn();
+  }
+
   @override
   void dispose() {
-    _emailController.dispose();
+    _emailUsernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
+  Future<void> _checkIfAlreadyLoggedIn() async {
+    try {
+      await _authManager.initialize();
+      if (_authManager.isLoggedIn && _authManager.hasValidToken()) {
+        Logger.logInfo('User already logged in, navigating to profile');
+        _navigateToProfile();
+      }
+    } catch (e) {
+      Logger.logError('Error checking login status', e);
+    }
+  }
+
   Future<void> _handleLogin() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
-      // TODO: Implement login API call
-      await Future.delayed(Duration(seconds: 2)); // Simulate API call
+    setState(() {
+      _isLoading = true;
+    });
 
-      setState(() {
-        _isLoading = false;
-      });
+    try {
+      final emailUsername = _emailUsernameController.text.trim();
+      final password = _passwordController.text;
 
-      // Navigate to home or show error
-      UIUtils.showSuccessSnackBar(context, 'Login successful!');
+      Logger.logInfo('Attempting login for: $emailUsername');
+
+      final success = await _authManager.login(
+        emailUsername: emailUsername,
+        password: password,
+      );
+
+      if (success) {
+        Logger.logSuccess('Login successful');
+        UIUtils.showSuccessSnackBar(context, 'Login successful!');
+
+        // Small delay to show success message
+        await Future.delayed(Duration(milliseconds: 500));
+
+        _navigateToProfile();
+      } else {
+        UIUtils.showErrorSnackBar(context, 'Login failed. Please try again.');
+      }
+
+    } on AuthException catch (e) {
+      Logger.logError('Login failed with AuthException', e);
+      UIUtils.showErrorSnackBar(context, e.message);
+    } catch (e) {
+      Logger.logError('Unexpected login error', e);
+      UIUtils.showErrorSnackBar(context, 'An unexpected error occurred. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _navigateToProfile() {
+    // Check if user came from a specific screen
+    if (Navigator.canPop(context)) {
+      // If there's a previous screen, go back to it
+      Navigator.pop(context);
+    } else {
+      // If login was accessed directly, go to main navigation
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/home',
+            (route) => false,
+      );
     }
   }
 
@@ -45,9 +113,17 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppConstants.backgroundColor,
-      appBar: SharedWidgets.buildAppBar(
-        title: 'Login',
-        showBackButton: true,
+      appBar: AppBar(
+        title: Text('Login'),
+        backgroundColor: Colors.white,
+        foregroundColor: Color(0xFF2E86AB),
+        elevation: 1,
+        leading: Navigator.canPop(context)
+            ? IconButton(
+          icon: Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        )
+            : null,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -110,7 +186,7 @@ class _LoginScreenState extends State<LoginScreen> {
       key: _formKey,
       child: Column(
         children: [
-          _buildEmailField(),
+          _buildEmailUsernameField(),
           SizedBox(height: 20),
           _buildPasswordField(),
           SizedBox(height: 15),
@@ -120,14 +196,15 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildEmailField() {
+  Widget _buildEmailUsernameField() {
     return TextFormField(
-      controller: _emailController,
-      keyboardType: TextInputType.emailAddress,
+      controller: _emailUsernameController,
+      keyboardType: TextInputType.text,
+      textInputAction: TextInputAction.next,
       decoration: InputDecoration(
-        labelText: 'Email',
-        hintText: 'Enter your email',
-        prefixIcon: Icon(Icons.email_outlined),
+        labelText: 'Email or Username',
+        hintText: 'Enter your email or username',
+        prefixIcon: Icon(Icons.person_outline),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
         ),
@@ -139,13 +216,17 @@ class _LoginScreenState extends State<LoginScreen> {
           borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
           borderSide: BorderSide(color: AppConstants.primaryColor),
         ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
+          borderSide: BorderSide(color: Colors.red),
+        ),
       ),
       validator: (value) {
-        if (value == null || value.isEmpty) {
-          return 'Please enter your email';
+        if (value == null || value.trim().isEmpty) {
+          return 'Please enter your email or username';
         }
-        if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
-          return 'Please enter a valid email';
+        if (value.trim().length < 3) {
+          return 'Email or username must be at least 3 characters';
         }
         return null;
       },
@@ -156,6 +237,8 @@ class _LoginScreenState extends State<LoginScreen> {
     return TextFormField(
       controller: _passwordController,
       obscureText: _isPasswordHidden,
+      textInputAction: TextInputAction.done,
+      onFieldSubmitted: (_) => _handleLogin(),
       decoration: InputDecoration(
         labelText: 'Password',
         hintText: 'Enter your password',
@@ -181,13 +264,17 @@ class _LoginScreenState extends State<LoginScreen> {
           borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
           borderSide: BorderSide(color: AppConstants.primaryColor),
         ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
+          borderSide: BorderSide(color: Colors.red),
+        ),
       ),
       validator: (value) {
         if (value == null || value.isEmpty) {
           return 'Please enter your password';
         }
-        if (value.length < 6) {
-          return 'Password must be at least 6 characters';
+        if (value.length < 3) {
+          return 'Password must be at least 3 characters';
         }
         return null;
       },
@@ -222,6 +309,7 @@ class _LoginScreenState extends State<LoginScreen> {
       onPressed: _isLoading ? null : _handleLogin,
       style: ElevatedButton.styleFrom(
         backgroundColor: AppConstants.primaryColor,
+        disabledBackgroundColor: AppConstants.primaryColor.withOpacity(0.6),
         padding: EdgeInsets.symmetric(vertical: 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
@@ -253,7 +341,7 @@ class _LoginScreenState extends State<LoginScreen> {
       alignment: Alignment.center,
       child: TextButton(
         onPressed: () {
-          // TODO: Navigate to forgot password screen
+          Navigator.pushNamed(context, '/forgot-password');
         },
         child: Text(
           'Forgot Password?',
@@ -294,7 +382,7 @@ class _LoginScreenState extends State<LoginScreen> {
           Icons.g_mobiledata,
           Colors.red,
               () {
-            // TODO: Implement Google login
+            UIUtils.showInfoSnackBar(context, 'Google login coming soon!');
           },
         ),
         SizedBox(height: 12),
@@ -303,7 +391,7 @@ class _LoginScreenState extends State<LoginScreen> {
           Icons.facebook,
           Colors.blue,
               () {
-            // TODO: Implement Facebook login
+            UIUtils.showInfoSnackBar(context, 'Facebook login coming soon!');
           },
         ),
       ],
@@ -312,7 +400,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Widget _buildSocialButton(String text, IconData icon, Color color, VoidCallback onPressed) {
     return OutlinedButton(
-      onPressed: onPressed,
+      onPressed: _isLoading ? null : onPressed,
       style: OutlinedButton.styleFrom(
         padding: EdgeInsets.symmetric(vertical: 12),
         side: BorderSide(color: Colors.grey.shade300),
@@ -350,7 +438,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         TextButton(
-          onPressed: () {
+          onPressed: _isLoading ? null : () {
             Navigator.pushNamed(context, '/register');
           },
           child: Text(

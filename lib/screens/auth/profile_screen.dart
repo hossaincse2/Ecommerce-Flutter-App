@@ -1,8 +1,12 @@
+// screens/auth/profile_screen.dart
 import 'package:flutter/material.dart';
 import '../../constants/app_constants.dart';
 import '../../utils/ui_utils.dart';
 import '../../widgets/common/loading_widgets.dart';
 import '../../widgets/common/shared_widgets.dart';
+import '../../services/auth_manager.dart';
+import '../../models/user.dart';
+import '../../utils/logger.dart';
 
 class ProfileScreen extends StatefulWidget {
   @override
@@ -11,47 +15,173 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool isLoading = false;
+  final AuthManager _authManager = AuthManager();
+  User? currentUser;
 
-  // Mock user data - replace with actual user model
-  final Map<String, dynamic> userProfile = {
-    'name': 'John Doe',
-    'email': 'john.doe@example.com',
-    'phone': '+1 234 567 8890',
-    'profileImage': null,
-    'memberSince': '2024',
-    'totalOrders': 15,
-    'wishlistItems': 8,
-    'reviews': 12,
-    'isVerified': true,
-  };
+  @override
+  void initState() {
+    super.initState();
+    _initializeProfile();
+  }
+
+  Future<void> _initializeProfile() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      await _authManager.initialize();
+
+      if (!_authManager.isLoggedIn) {
+        _navigateToLogin();
+        return;
+      }
+
+      if (!_authManager.hasValidToken()) {
+        Logger.logWarning('Invalid token, redirecting to login');
+        UIUtils.showErrorSnackBar(context, 'Session expired. Please login again.');
+        _navigateToLogin();
+        return;
+      }
+
+      // Get user data
+      currentUser = _authManager.user;
+
+      // Refresh user data from server
+      await _refreshUserData();
+
+    } catch (e) {
+      Logger.logError('Error initializing profile', e);
+      UIUtils.showErrorSnackBar(context, 'Failed to load profile data');
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _refreshUserData() async {
+    try {
+      final success = await _authManager.refreshUserData();
+      if (success && mounted) {
+        setState(() {
+          currentUser = _authManager.user;
+        });
+      }
+    } catch (e) {
+      Logger.logError('Error refreshing user data', e);
+      // Don't show error for refresh - continue with cached data
+    }
+  }
+
+  void _navigateToLogin() {
+    Navigator.pushNamed(context, '/login').then((_) {
+      // After returning from login, reinitialize profile
+      if (mounted) {
+        _initializeProfile();
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Check if user is logged in
+    if (!_authManager.isLoggedIn) {
+      return _buildNotLoggedInView();
+    }
+
     return Scaffold(
       backgroundColor: AppConstants.backgroundColor,
       appBar: SharedWidgets.buildAppBar(
         title: 'My Profile',
-        showBackButton: true,
+        showBackButton: false,
         actions: [
           IconButton(
-            icon: Icon(Icons.edit_outlined, color: AppConstants.primaryColor),
-            onPressed: () => _navigateToEditProfile(),
+            icon: Icon(Icons.refresh, color: AppConstants.primaryColor),
+            onPressed: _refreshUserData,
           ),
           SizedBox(width: AppConstants.smallPadding),
         ],
       ),
       body: isLoading
           ? LoadingWidgets.buildLoadingScreen(message: 'Loading profile...')
-          : SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildProfileHeader(),
-            SizedBox(height: 20),
-            _buildProfileStats(),
-            SizedBox(height: 20),
-            _buildProfileOptions(),
-            SizedBox(height: 80), // Bottom navigation padding
-          ],
+          : RefreshIndicator(
+        onRefresh: _refreshUserData,
+        child: SingleChildScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          child: Column(
+            children: [
+              _buildProfileHeader(),
+              SizedBox(height: 20),
+              _buildProfileStats(),
+              SizedBox(height: 20),
+              _buildProfileOptions(),
+              SizedBox(height: 80), // Bottom navigation padding
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotLoggedInView() {
+    return Scaffold(
+      backgroundColor: AppConstants.backgroundColor,
+      appBar: SharedWidgets.buildAppBar(
+        title: 'Profile',
+        showBackButton: false,
+      ),
+      body: Center(
+        child: Padding(
+          padding: EdgeInsets.all(AppConstants.defaultPadding),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.person_outline,
+                size: 80,
+                color: AppConstants.primaryColor.withOpacity(0.5),
+              ),
+              SizedBox(height: 20),
+              Text(
+                'You are not logged in',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: AppConstants.textPrimaryColor,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Please login to view your profile',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: AppConstants.textSecondaryColor,
+                ),
+              ),
+              SizedBox(height: 30),
+              ElevatedButton(
+                onPressed: () => Navigator.pushNamed(context, '/login'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppConstants.primaryColor,
+                  padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
+                  ),
+                ),
+                child: Text(
+                  'Login',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -70,34 +200,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Stack(
             children: [
-              CircleAvatar(
-                radius: 50,
-                backgroundColor: AppConstants.primaryColor.withOpacity(0.1),
-                backgroundImage: userProfile['profileImage'] != null
-                    ? NetworkImage(userProfile['profileImage'])
-                    : null,
-                child: userProfile['profileImage'] == null
-                    ? Icon(
-                  Icons.person,
-                  size: 50,
-                  color: AppConstants.primaryColor,
-                )
-                    : null,
+              Container(
+                width: 100,
+                height: 100,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppConstants.primaryColor.withOpacity(0.3),
+                    width: 3,
+                  ),
+                ),
+                child: ClipOval(
+                  child: _buildProfileImage(),
+                ),
               ),
               Positioned(
                 bottom: 0,
                 right: 0,
                 child: GestureDetector(
-                  onTap: _changeProfilePicture,
+                  onTap: _navigateToEditProfile,
                   child: Container(
-                    padding: EdgeInsets.all(4),
+                    padding: EdgeInsets.all(6),
                     decoration: BoxDecoration(
                       color: AppConstants.primaryColor,
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Icon(
-                      Icons.camera_alt,
+                      Icons.edit,
                       size: 16,
                       color: Colors.white,
                     ),
@@ -111,14 +248,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                userProfile['name'],
+                currentUser?.name ?? 'User',
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
                   color: AppConstants.textPrimaryColor,
                 ),
               ),
-              if (userProfile['isVerified'])
+              if (currentUser?.isRetailer == true)
                 Padding(
                   padding: EdgeInsets.only(left: 8),
                   child: Icon(
@@ -131,15 +268,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           SizedBox(height: 4),
           Text(
-            userProfile['email'],
+            currentUser?.email ?? 'No email',
             style: TextStyle(
               fontSize: 16,
               color: AppConstants.textSecondaryColor,
             ),
           ),
           SizedBox(height: 8),
+          if (currentUser?.phone != null && currentUser!.phone!.isNotEmpty)
+            Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                currentUser!.phone!,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: AppConstants.textSecondaryColor,
+                ),
+              ),
+            ),
           Text(
-            userProfile['phone'],
+            '@${currentUser?.username ?? 'username'}',
             style: TextStyle(
               fontSize: 16,
               color: AppConstants.textSecondaryColor,
@@ -153,7 +301,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              'Member since ${userProfile['memberSince']}',
+              currentUser?.isRetailer == true ? 'Retailer Account' : 'Customer Account',
               style: TextStyle(
                 fontSize: 12,
                 color: AppConstants.primaryColor,
@@ -166,6 +314,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Widget _buildProfileImage() {
+    if (currentUser?.profileImage != null && currentUser!.profileImage!.isNotEmpty) {
+      return Image.network(
+        currentUser!.profileImage!,
+        width: 100,
+        height: 100,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            width: 100,
+            height: 100,
+            color: AppConstants.primaryColor.withOpacity(0.1),
+            child: Center(
+              child: CircularProgressIndicator(
+                value: loadingProgress.expectedTotalBytes != null
+                    ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                    : null,
+              ),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            width: 100,
+            height: 100,
+            color: AppConstants.primaryColor.withOpacity(0.1),
+            child: Icon(
+              Icons.person,
+              size: 50,
+              color: AppConstants.primaryColor,
+            ),
+          );
+        },
+      );
+    } else {
+      return Container(
+        width: 100,
+        height: 100,
+        color: AppConstants.primaryColor.withOpacity(0.1),
+        child: Icon(
+          Icons.person,
+          size: 50,
+          color: AppConstants.primaryColor,
+        ),
+      );
+    }
+  }
+
   Widget _buildProfileStats() {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: AppConstants.defaultPadding),
@@ -174,7 +371,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Expanded(
             child: _buildStatCard(
               'Total Orders',
-              '${userProfile['totalOrders']}',
+              '0', // TODO: Fetch from API
               Icons.shopping_bag_outlined,
               AppConstants.primaryColor,
             ),
@@ -183,7 +380,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Expanded(
             child: _buildStatCard(
               'Wishlist',
-              '${userProfile['wishlistItems']}',
+              '0', // TODO: Fetch from API
               Icons.favorite_outline,
               Colors.red,
             ),
@@ -192,7 +389,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Expanded(
             child: _buildStatCard(
               'Reviews',
-              '${userProfile['reviews']}',
+              '0', // TODO: Fetch from API
               Icons.star_outline,
               Colors.orange,
             ),
@@ -387,44 +584,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _changeProfilePicture() async {
-    // TODO: Implement profile picture change logic
-    final result = await showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Icon(Icons.camera_alt),
-              title: Text('Take Photo'),
-              onTap: () {
-                Navigator.pop(context, 'camera');
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.photo_library),
-              title: Text('Choose from Gallery'),
-              onTap: () {
-                Navigator.pop(context, 'gallery');
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (result != null) {
-      UIUtils.showInfoSnackBar(context, 'Profile picture updated');
-      // Here you would typically upload the new image to your server
-    }
-  }
-
   void _navigateToEditProfile() {
-    Navigator.pushNamed(context, '/edit-profile').then((_) {
-      // Refresh profile data if needed
-      setState(() {});
+    Navigator.pushNamed(context, '/profile-update').then((result) {
+      // If profile was updated successfully, refresh the data
+      if (result == true) {
+        _refreshUserData();
+      }
     });
   }
 
@@ -513,16 +678,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _handleLogout() {
+  void _handleLogout() async {
     setState(() {
       isLoading = true;
     });
 
-    // Simulate logout process
-    Future.delayed(Duration(seconds: 1), () {
-      // TODO: Implement actual logout logic (clear tokens, user data, etc.)
+    try {
+      Logger.logInfo('Starting logout process');
+      await _authManager.logout();
+
       UIUtils.showSuccessSnackBar(context, 'Logged out successfully');
-      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-    });
+
+      // Navigate back to home screen instead of login
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+
+    } catch (e) {
+      Logger.logError('Logout error', e);
+      UIUtils.showErrorSnackBar(context, 'Error during logout. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
   }
 }
