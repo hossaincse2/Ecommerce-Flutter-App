@@ -10,6 +10,7 @@ import 'package:karbar_shop/screens/category_products_screen.dart';
 import 'package:karbar_shop/screens/checkout/checkout_screen.dart';
 import 'package:karbar_shop/screens/home_screen.dart';
 import 'package:karbar_shop/screens/orders/my_order_screen.dart';
+import 'package:karbar_shop/screens/orders/order_details_screen.dart';
 import 'package:karbar_shop/screens/orders/order_tracking_screen.dart';
 import 'package:karbar_shop/screens/product_details_screen.dart';
 import 'package:karbar_shop/screens/auth/profile_screen.dart';
@@ -73,10 +74,14 @@ class KarbarShopApp extends StatelessWidget {
         '/cart': (context) => CartScreen(),
         '/checkout': (context) => CheckoutScreen(),
         '/my-account': (context) => MyAccountScreen(),
-        '/order-details': (context) => MyOrdersScreen(),
+        '/my-details': (context) => MyOrdersScreen(),
         '/order-tracking': (context) {
-          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
-          return OrderTrackingScreen(orderId: args['orderId']!);
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+          return OrderTrackingScreen(orderId: args['orderId']);
+        },
+        '/order-details': (context) {
+          final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+          return OrderDetailsScreen(orderId: args['orderId']);
         },
         '/update-profile': (context) => ProfileUpdateScreen(),
         '/settings': (context) => SettingsScreen(),
@@ -99,7 +104,7 @@ class _MainNavigationWrapperState extends State<MainNavigationWrapper> {
     HomeScreen(),
     CategoriesScreen(),
     ShopScreen(),
-    LoginScreen(),
+    MyOrdersScreen(),
   ];
 
   @override

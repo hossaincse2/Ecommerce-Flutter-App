@@ -442,12 +442,19 @@ class _MyOrdersScreenState extends State<MyOrdersScreen> with SingleTickerProvid
 
   void _viewOrderDetails(Map<String, dynamic> order) {
     // TODO: Navigate to order details screen
-    Navigator.pushNamed(context, '/order-details', arguments: order['id']);
+    Navigator.pushNamed(
+      context,
+      '/order-details',
+      arguments: {'orderId': order['id']}, // Pass as Map with key
+    );
   }
 
   void _trackOrder(Map<String, dynamic> order) {
-    // TODO: Navigate to order tracking screen
-    Navigator.pushNamed(context, '/order-tracking', arguments: order['id']);
+    Navigator.pushNamed(
+      context,
+      '/order-tracking',
+      arguments: {'orderId': order['id']}, // Pass as Map with key
+    );
   }
 
   void _cancelOrder(Map<String, dynamic> order) {

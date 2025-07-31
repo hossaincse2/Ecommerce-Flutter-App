@@ -4,7 +4,6 @@ import '../models/category.dart';
 import '../models/hero_image.dart';
 import '../services/api_service.dart';
 import '../utils/ui_utils.dart';
-// import '../widgets/common/bottom_nav_widget.dart';
 import '../widgets/common/loading_widgets.dart';
 import '../widgets/common/shared_widgets.dart';
 
@@ -13,7 +12,7 @@ class HomeScreen extends StatefulWidget {
   _HomeScreenState createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ================ STATE VARIABLES ================
   List<Product> products = [];
   List<Category> categories = [];
@@ -23,10 +22,21 @@ class _HomeScreenState extends State<HomeScreen> {
   int currentPage = 1;
   bool hasMoreProducts = true;
 
+  // Cart state
+  List<CartItem> cartItems = [];
+  int cartItemCount = 0;
+  double cartTotal = 0.0;
+
   // ================ CONTROLLERS ================
   PageController _pageController = PageController();
   ScrollController _scrollController = ScrollController();
+  ScrollController _categoryScrollController = ScrollController();
+  AnimationController? _categoryAnimationController;
+  Animation<double>? _categorySlideAnimation;
   int _currentIndex = 0;
+
+  // Drawer key for cart sidebar
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   // ================ LIFECYCLE METHODS ================
 
@@ -35,12 +45,51 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadData();
     _scrollController.addListener(_onScroll);
+    _initializeAnimations();
+    _loadCartData();
+  }
+
+  void _initializeAnimations() {
+    _categoryAnimationController = AnimationController(
+      duration: Duration(seconds: 20),
+      vsync: this,
+    );
+
+    _categorySlideAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _categoryAnimationController!,
+      curve: Curves.linear,
+    ));
+
+    // Start auto-scroll for categories
+    _categoryAnimationController!.addListener(() {
+      if (_categoryScrollController.hasClients && categories.isNotEmpty) {
+        final maxScroll = _categoryScrollController.position.maxScrollExtent;
+        final currentScroll = maxScroll * _categorySlideAnimation!.value;
+        _categoryScrollController.jumpTo(currentScroll);
+      }
+    });
+
+    _categoryAnimationController!.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        Future.delayed(Duration(seconds: 2), () {
+          if (mounted) {
+            _categoryAnimationController!.reset();
+            _categoryAnimationController!.forward();
+          }
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
     _pageController.dispose();
+    _categoryScrollController.dispose();
+    _categoryAnimationController?.dispose();
     super.dispose();
   }
 
@@ -52,6 +101,82 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadMoreProducts();
       }
     }
+  }
+
+  // ================ CART METHODS ================
+
+  void _loadCartData() {
+    // Simulate loading cart data - replace with actual cart service
+    setState(() {
+      cartItems = [
+        CartItem(
+          product: Product(
+            id: 1,
+            name: "Sample Product 1",
+            slug: "sample-product-1",
+            unitPrice: 150.0,
+            salePrice: 120.0,
+            stock: 50,
+            category: "Electronics",
+            brand: "Brand A",
+            previewImage: "https://via.placeholder.com/150",
+            freeDelivery: true,
+            preOrder: false,
+            lastMonthSoldItem: '25',
+            productRating: 4.5,
+            totalRating: '120',
+          ),
+          quantity: 2,
+        ),
+        CartItem(
+          product: Product(
+            id: 2,
+            name: "Sample Product 2",
+            slug: "sample-product-2",
+            unitPrice: 200.0,
+            salePrice: 0.0,
+            stock: 30,
+            category: "Fashion",
+            brand: "Brand B",
+            previewImage: "https://via.placeholder.com/150",
+            freeDelivery: false,
+            preOrder: true,
+            lastMonthSoldItem: '15',
+            productRating: 4.2,
+            totalRating: '85',
+          ),
+          quantity: 1,
+        ),
+      ];
+      _updateCartSummary();
+    });
+  }
+
+  void _updateCartSummary() {
+    cartItemCount = cartItems.fold(0, (sum, item) => sum + item.quantity);
+    cartTotal = cartItems.fold(0.0, (sum, item) {
+      final price = item.product.salePrice > 0 ? item.product.salePrice : item.product.unitPrice;
+      return sum + (price * item.quantity);
+    });
+  }
+
+  void _removeFromCart(int index) {
+    setState(() {
+      cartItems.removeAt(index);
+      _updateCartSummary();
+    });
+  }
+
+  void _updateQuantity(int index, int newQuantity) {
+    if (newQuantity <= 0) {
+      _removeFromCart(index);
+      return;
+    }
+
+    setState(() {
+      cartItems[index].quantity = newQuantity;
+      _updateCartSummary();
+    });
   }
 
   // ================ API METHODS ================
@@ -81,6 +206,15 @@ class _HomeScreenState extends State<HomeScreen> {
         isLoading = false;
         hasMoreProducts = productsList.length >= 12;
       });
+
+      // Start category animation after data loads
+      if (categories.isNotEmpty) {
+        Future.delayed(Duration(seconds: 3), () {
+          if (mounted) {
+            _categoryAnimationController!.forward();
+          }
+        });
+      }
     } catch (e) {
       setState(() {
         isLoading = false;
@@ -125,31 +259,459 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: Colors.grey[50],
       appBar: _buildAppBar(),
+      endDrawer: _buildCartDrawer(),
       body: isLoading
           ? LoadingWidgets.buildLoadingScreen()
           : _buildBody(),
-      // bottomNavigationBar: BottomNavigationWidget(currentIndex: 0),
     );
   }
 
-  // ================ APP BAR ================
+  // ================ ENHANCED APP BAR ================
 
   PreferredSizeWidget _buildAppBar() {
-    return SharedWidgets.buildAppBar(
-      title: 'Karbar Shop',
-      actions: [
-        IconButton(
-          icon: Icon(Icons.search, color: Color(0xFF2E86AB)),
-          onPressed: () => UIUtils.onSearchTap(context),
+    return AppBar(
+      elevation: 0,
+      backgroundColor: Colors.white,
+      automaticallyImplyLeading: false,
+      toolbarHeight: 70,
+      flexibleSpace: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF2E86AB),
+              Color(0xFF47A3C7),
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Color(0xFF2E86AB).withOpacity(0.3),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
         ),
-        IconButton(
-          icon: Icon(Icons.shopping_cart_outlined, color: Color(0xFF2E86AB)),
-          onPressed: () => UIUtils.onCartTap(context),
+      ),
+      title: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.storefront,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Karbar Shop',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                'Your trusted marketplace',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.9),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        // Search Icon
+        Container(
+          margin: EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.2),
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            icon: Icon(Icons.search, color: Colors.white, size: 24),
+            onPressed: () => UIUtils.onSearchTap(context),
+          ),
+        ),
+        // Cart Icon with Badge
+        Container(
+          margin: EdgeInsets.symmetric(horizontal: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.2),
+            shape: BoxShape.circle,
+          ),
+          child: Stack(
+            children: [
+              IconButton(
+                icon: Icon(Icons.shopping_cart_outlined, color: Colors.white, size: 24),
+                onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+              ),
+              if (cartItemCount > 0)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Container(
+                    padding: EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1),
+                    ),
+                    constraints: BoxConstraints(
+                      minWidth: 18,
+                      minHeight: 18,
+                    ),
+                    child: Text(
+                      cartItemCount > 99 ? '99+' : cartItemCount.toString(),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
         SizedBox(width: 8),
       ],
+    );
+  }
+
+  // ================ CART DRAWER ================
+
+  Widget _buildCartDrawer() {
+    return Drawer(
+      width: MediaQuery.of(context).size.width * 0.85,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.white,
+              Colors.grey[50]!,
+            ],
+          ),
+        ),
+        child: Column(
+          children: [
+            _buildCartHeader(),
+            Expanded(
+              child: cartItems.isEmpty ? _buildEmptyCart() : _buildCartItems(),
+            ),
+            if (cartItems.isNotEmpty) _buildCartFooter(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCartHeader() {
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, 50, 20, 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFF2E86AB), Color(0xFF47A3C7)],
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.shopping_cart, color: Colors.white, size: 28),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Shopping Cart',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  '${cartItemCount} items',
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.close, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyCart() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.shopping_cart_outlined,
+            size: 80,
+            color: Colors.grey[400],
+          ),
+          SizedBox(height: 16),
+          Text(
+            'Your cart is empty',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[600],
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Add some products to get started',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+          ),
+          SizedBox(height: 24),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Color(0xFF2E86AB),
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(25),
+              ),
+            ),
+            child: Text('Continue Shopping'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCartItems() {
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: cartItems.length,
+      itemBuilder: (context, index) {
+        final cartItem = cartItems[index];
+        final product = cartItem.product;
+        final price = product.salePrice > 0 ? product.salePrice : product.unitPrice;
+
+        return Card(
+          margin: EdgeInsets.only(bottom: 12),
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: EdgeInsets.all(12),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.network(
+                    product.previewImage,
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        width: 60,
+                        height: 60,
+                        color: Colors.grey[200],
+                        child: Icon(Icons.image_not_supported, color: Colors.grey),
+                      );
+                    },
+                  ),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product.name,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        product.brand,
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Text(
+                            '৳${price.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              color: Color(0xFF2E86AB),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          if (product.salePrice > 0)
+                            Padding(
+                              padding: EdgeInsets.only(left: 8),
+                              child: Text(
+                                '৳${product.unitPrice.toStringAsFixed(0)}',
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 12,
+                                  decoration: TextDecoration.lineThrough,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          onPressed: () => _updateQuantity(index, cartItem.quantity - 1),
+                          icon: Icon(Icons.remove_circle_outline),
+                          color: Color(0xFF2E86AB),
+                          constraints: BoxConstraints(),
+                          padding: EdgeInsets.all(4),
+                        ),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey[300]!),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            cartItem.quantity.toString(),
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => _updateQuantity(index, cartItem.quantity + 1),
+                          icon: Icon(Icons.add_circle_outline),
+                          color: Color(0xFF2E86AB),
+                          constraints: BoxConstraints(),
+                          padding: EdgeInsets.all(4),
+                        ),
+                      ],
+                    ),
+                    TextButton(
+                      onPressed: () => _removeFromCart(index),
+                      child: Text(
+                        'Remove',
+                        style: TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCartFooter() {
+    return Container(
+      padding: EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: Offset(0, -2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Total (${cartItemCount} items):',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                '৳${cartTotal.toStringAsFixed(0)}',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2E86AB),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                // Navigate to checkout
+                Navigator.pushNamed(context, '/checkout');
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Color(0xFF2E86AB),
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 2,
+              ),
+              child: Text(
+                'Proceed to Checkout',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -171,7 +733,7 @@ class _HomeScreenState extends State<HomeScreen> {
             SizedBox(height: 20),
             _buildFeaturedProductsSection(),
             if (isLoadingMore) LoadingWidgets.buildLoadingMoreIndicator(),
-            SizedBox(height: 100), // Bottom padding for navigation bar
+            SizedBox(height: 100),
           ],
         ),
       ),
@@ -258,7 +820,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ================ CATEGORIES SECTION ================
+  // ================ ENHANCED CATEGORIES SECTION ================
 
   Widget _buildCategoriesSection() {
     if (categories.isEmpty) return SizedBox.shrink();
@@ -268,28 +830,27 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         SharedWidgets.buildSectionHeader('Shop by Categories'),
         SizedBox(height: 12),
-        _buildCategoriesGrid(),
+        _buildCategoriesSlider(),
       ],
     );
   }
 
-  Widget _buildCategoriesGrid() {
+  Widget _buildCategoriesSlider() {
     return Container(
-      height: 280,
-      padding: EdgeInsets.symmetric(horizontal: 16),
-      child: GridView.builder(
-        scrollDirection: Axis.vertical,
-        physics: AlwaysScrollableScrollPhysics(),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          childAspectRatio: 0.85,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-        ),
-        itemCount: categories.length > 9 ? 9 : categories.length,
+      height: 120,
+      child: ListView.builder(
+        controller: _categoryScrollController,
+        scrollDirection: Axis.horizontal,
+        physics: BouncingScrollPhysics(),
+        padding: EdgeInsets.symmetric(horizontal: 16),
+        itemCount: categories.length,
         itemBuilder: (context, index) {
           final category = categories[index];
-          return _buildCategoryCard(category);
+          return Container(
+            width: 90,
+            margin: EdgeInsets.only(right: 12),
+            child: _buildCategoryCard(category),
+          );
         },
       ),
     );
@@ -471,9 +1032,9 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: EdgeInsets.all(6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min, // ← Key fix: Makes column shrink-wrap
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Flexible( // ← Wraps the first Text
+            Flexible(
               child: Text(
                 product.name,
                 style: TextStyle(
@@ -495,7 +1056,7 @@ class _HomeScreenState extends State<HomeScreen> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            SizedBox(height: 2), // ← Replaced Spacer() with fixed gap
+            SizedBox(height: 2),
             _buildProductPrice(product, displayPrice, hasDiscount),
           ],
         ),
@@ -527,4 +1088,15 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
     );
   }
+}
+
+// ================ CART ITEM MODEL ================
+class CartItem {
+  final Product product;
+  int quantity;
+
+  CartItem({
+    required this.product,
+    required this.quantity,
+  });
 }
