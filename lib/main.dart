@@ -1,5 +1,7 @@
 // main.dart
 import 'package:flutter/material.dart';
+import 'package:karbar_shop/screens/orders/order_success_screen.dart';
+import 'package:provider/provider.dart';
 import 'package:karbar_shop/screens/account/my_account_screen.dart';
 import 'package:karbar_shop/screens/auth/forgot_password_screen.dart';
 import 'package:karbar_shop/screens/auth/login_screen.dart';
@@ -21,8 +23,9 @@ import 'package:karbar_shop/screens/splash_screen.dart';
 import 'package:karbar_shop/screens/auth/profile_update_screen.dart';
 
 import 'services/api_service.dart';
-import 'services/order_api_service.dart';  // Add this import
+import 'services/order_api_service.dart';
 import 'services/auth_manager.dart';
+import 'services/cart_service.dart';
 import 'utils/logger.dart';
 import 'config/app_config.dart';
 
@@ -44,6 +47,9 @@ Future<void> _initializeApp() async {
     // Initialize Order API service with authentication
     await OrderApiService.initialize();
 
+    // Initialize CartService
+    await CartService().initialize();
+
     // Log app initialization
     Logger.logInfo('App initialized with environment: ${AppConfig.environment}');
     Logger.logInfo('Base URL: ${AppConfig.baseUrl}');
@@ -56,62 +62,69 @@ Future<void> _initializeApp() async {
 class KarbarShopApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: AppConfig.appName,
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        primaryColor: Color(0xFF2E86AB),
-        fontFamily: 'Roboto',
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.white,
-          foregroundColor: Color(0xFF2E86AB),
-          elevation: 1,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<CartService>(
+          create: (_) => CartService(),
         ),
+        // Add other providers here as needed
+      ],
+      child: MaterialApp(
+        title: AppConfig.appName,
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+          primaryColor: Color(0xFF2E86AB),
+          fontFamily: 'Roboto',
+          visualDensity: VisualDensity.adaptivePlatformDensity,
+          appBarTheme: AppBarTheme(
+            backgroundColor: Colors.white,
+            foregroundColor: Color(0xFF2E86AB),
+            elevation: 1,
+          ),
+        ),
+        // Define your routes
+        routes: {
+          '/': (context) => SplashScreen(),
+          '/home': (context) => MainNavigationWrapper(),
+          '/categories': (context) => CategoriesScreen(),
+          '/wishlist': (context) => WishlistScreen(),
+          '/profile': (context) => ProfileScreen(),
+          '/shop': (context) => ShopScreen(),
+          '/category-products': (context) {
+            final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
+            return CategoryProductsScreen(categoryId: args['categoryId']!);
+          },
+          '/product-details': (context) {
+            final args = ModalRoute.of(context)!.settings.arguments;
+            final slug = (args is Map<String, dynamic> ? args['slug']?.toString() : null) ?? 'default_id';
+            return ProductDetailsScreen(slug: slug);
+          },
+          '/login': (context) => LoginScreen(),
+          '/register': (context) => RegistrationScreen(),
+          '/forgot-password': (context) => ForgotPasswordScreen(),
+          '/cart': (context) => CartScreen(),
+          '/checkout': (context) => CheckoutScreen(),
+          '/my-account': (context) => MyAccountScreen(),
+          '/my-orders': (context) => MyOrdersScreen(),
+          '/order-tracking': (context) {
+            final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+            return OrderTrackingScreen(orderId: args['orderId']);
+          },
+          '/order-details': (context) {
+            final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+            return OrderDetailsScreen(orderId: args['orderId']);
+          },
+          '/order-success': (context) => OrderSuccessScreen(),
+          '/update-profile': (context) => ProfileUpdateScreen(),
+          '/profile-update': (context) => ProfileUpdateScreen(),
+          '/settings': (context) => SettingsScreen(),
+        },
+        initialRoute: '/',
       ),
-      // Define your routes
-      routes: {
-        '/': (context) => SplashScreen(),
-        '/home': (context) => MainNavigationWrapper(),
-        '/categories': (context) => CategoriesScreen(),
-        '/wishlist': (context) => WishlistScreen(),
-        '/profile': (context) => ProfileScreen(),
-        '/shop': (context) => ShopScreen(),
-        '/category-products': (context) {
-          final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
-          return CategoryProductsScreen(categoryId: args['categoryId']!);
-        },
-        '/product-details': (context) {
-          final args = ModalRoute.of(context)!.settings.arguments;
-          final slug = (args is Map<String, dynamic> ? args['slug']?.toString() : null) ?? 'default_id';
-          return ProductDetailsScreen(slug: slug);
-        },
-        '/login': (context) => LoginScreen(),
-        '/register': (context) => RegistrationScreen(),
-        '/forgot-password': (context) => ForgotPasswordScreen(),
-        '/cart': (context) => CartScreen(),
-        '/checkout': (context) => CheckoutScreen(),
-        '/my-account': (context) => MyAccountScreen(),
-        '/my-orders': (context) => MyOrdersScreen(),
-        '/order-tracking': (context) {
-          final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
-          return OrderTrackingScreen(orderId: args['orderId']);
-        },
-        '/order-details': (context) {
-          final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
-          return OrderDetailsScreen(orderId: args['orderId']);
-        },
-        '/update-profile': (context) => ProfileUpdateScreen(),
-        '/profile-update': (context) => ProfileUpdateScreen(),
-        '/settings': (context) => SettingsScreen(),
-      },
-      initialRoute: '/',
     );
   }
 }
-
-
 
 class MainNavigationWrapper extends StatefulWidget {
   @override

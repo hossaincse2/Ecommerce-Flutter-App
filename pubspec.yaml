@@ -14,6 +14,11 @@ dependencies:
   # HTTP requests
   http: ^1.4.0
 
+  pdf: ^3.10.4                # For generating PDF invoices
+  path_provider: ^2.1.1       # For getting file system paths
+  permission_handler: ^11.0.1 # For handling storage permissions
+
+
   # State management and utilities
   provider: ^6.0.5
   shared_preferences: ^2.2.2

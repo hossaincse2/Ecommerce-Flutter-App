@@ -1,3 +1,4 @@
+// models/product_details.dart - Updated to match API response
 class ProductDetails {
   final int id;
   final String uuid;
@@ -24,7 +25,7 @@ class ProductDetails {
   final Campaign? campaign;
   final String currency;
   final String? videoLink;
-  final String productUnit;
+  final String? productUnit;
   final bool freeDelivery;
   final bool preOrder;
   final List<RelatedProduct> relatedProducts;
@@ -56,7 +57,7 @@ class ProductDetails {
     this.campaign,
     required this.currency,
     this.videoLink,
-    required this.productUnit,
+    this.productUnit,
     required this.freeDelivery,
     required this.preOrder,
     required this.relatedProducts,
@@ -96,7 +97,7 @@ class ProductDetails {
       campaign: json['campaign'] != null ? Campaign.fromJson(json['campaign']) : null,
       currency: json['currency'] ?? 'bdt',
       videoLink: json['video_link'],
-      productUnit: json['product_unit'] ?? 'piece',
+      productUnit: json['product_unit'],
       freeDelivery: json['free_delivery'] ?? false,
       preOrder: json['pre_order'] ?? false,
       relatedProducts: (json['related_products'] as List<dynamic>? ?? [])
@@ -106,40 +107,53 @@ class ProductDetails {
     );
   }
 
+  bool get hasVariants => variants.isNotEmpty;
+  bool get hasDiscount => salePrice > 0 && salePrice < unitPrice;
+  double get effectivePrice => hasDiscount ? salePrice : unitPrice;
+  int get discountPercentage => hasDiscount
+      ? ((unitPrice - salePrice) / unitPrice * 100).round()
+      : 0;
+}
+
+// Updated ProductVariant to match API response
+class ProductVariant {
+  final int productVariantId;
+  final Map<String, String> attributes;
+  final double? additionalPrice;
+  final int qty;
+
+  ProductVariant({
+    required this.productVariantId,
+    required this.attributes,
+    this.additionalPrice,
+    required this.qty,
+  });
+
+  factory ProductVariant.fromJson(Map<String, dynamic> json) {
+    return ProductVariant(
+      productVariantId: json['product_variant_id'] ?? 0,
+      attributes: Map<String, String>.from(json['attributes'] ?? {}),
+      additionalPrice: json['additional_price']?.toDouble(),
+      qty: json['qty'] ?? 0,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
-      'id': id,
-      'uuid': uuid,
-      'name': name,
-      'slug': slug,
-      'sku_code': skuCode,
-      'unit_price': unitPrice,
-      'sale_price': salePrice,
-      'stock': stock,
-      'description': description,
-      'summary': summary,
-      'category': category,
-      'reviews': reviews.map((item) => item.toJson()).toList(),
-      'variants': variants.map((item) => item.toJson()).toList(),
-      'product_images': productImages.map((item) => item.toJson()).toList(),
-      'preview_image': previewImage,
-      'total_ratings': totalRatings,
-      'average_rating': averageRating,
-      'total_five_stars': totalFiveStars,
-      'total_four_stars': totalFourStars,
-      'total_three_stars': totalThreeStars,
-      'total_two_stars': totalTwoStars,
-      'total_one_stars': totalOneStars,
-      'campaign': campaign?.toJson(),
-      'currency': currency,
-      'video_link': videoLink,
-      'product_unit': productUnit,
-      'free_delivery': freeDelivery,
-      'pre_order': preOrder,
-      'related_products': relatedProducts.map((item) => item.toJson()).toList(),
-      'image_preview_style': imagePreviewStyle,
+      'product_variant_id': productVariantId,
+      'attributes': attributes,
+      'additional_price': additionalPrice,
+      'qty': qty,
     };
   }
+
+  String get displayText {
+    return attributes.entries
+        .map((entry) => '${entry.key}: ${entry.value}')
+        .join(', ');
+  }
+
+  bool get isAvailable => qty > 0;
 }
 
 class ProductImage {
@@ -215,23 +229,8 @@ class RelatedProduct {
     );
   }
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'uuid': uuid,
-      'name': name,
-      'slug': slug,
-      'sales_count': salesCount,
-      'sku_code': skuCode,
-      'unit_price': unitPrice,
-      'sale_price': salePrice,
-      'stock': stock,
-      'category': category,
-      'campaign': campaign?.toJson(),
-      'category_slug': categorySlug,
-      'preview_image': previewImage,
-    };
-  }
+  bool get hasDiscount => salePrice > 0 && salePrice < unitPrice;
+  double get effectivePrice => hasDiscount ? salePrice : unitPrice;
 }
 
 class Review {
@@ -274,38 +273,6 @@ class Review {
       'rating': rating,
       'review': review,
       'created_at': createdAt.toIso8601String(),
-    };
-  }
-}
-
-class ProductVariant {
-  final int id;
-  final String name;
-  final String value;
-  final double? priceAdjustment;
-
-  ProductVariant({
-    required this.id,
-    required this.name,
-    required this.value,
-    this.priceAdjustment,
-  });
-
-  factory ProductVariant.fromJson(Map<String, dynamic> json) {
-    return ProductVariant(
-      id: json['id'] ?? 0,
-      name: json['name'] ?? '',
-      value: json['value'] ?? '',
-      priceAdjustment: json['price_adjustment']?.toDouble(),
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'value': value,
-      'price_adjustment': priceAdjustment,
     };
   }
 }

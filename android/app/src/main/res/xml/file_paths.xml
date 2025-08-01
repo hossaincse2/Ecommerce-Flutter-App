@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Application's external files directory (e.g., /sdcard/Android/data/<package_name>/files/) -->
+    <external-files-path name="external_files" path="." />
+    <!-- Application's external cache directory (e.g., /sdcard/Android/data/<package_name>/cache/) -->
+    <external-cache-path name="external_cache" path="." />
+    <!-- Application's internal storage for invoices (e.g., /data/data/<package_name>/files/invoices/) -->
+    <files-path name="invoices" path="invoices/" />
+    <!-- Application's internal cache directory -->
+    <cache-path name="cache" path="." />
+</paths>

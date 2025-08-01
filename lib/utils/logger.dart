@@ -5,6 +5,96 @@ enum LogLevel { debug, info, warning, error, success }
 class Logger {
   static bool _isEnabled = true;
   static LogLevel _minLevel = LogLevel.debug;
+  static LogLevel _minimumLevel = LogLevel.debug;
+
+  // Private constructor to prevent instantiation
+  Logger._();
+
+  // ================ CONFIGURATION ================
+
+  static void configure({
+    bool? enabled,
+    LogLevel? minimumLevel,
+  }) {
+    if (enabled != null) _isEnabled = enabled;
+    if (minimumLevel != null) _minimumLevel = minimumLevel;
+  }
+
+
+
+  // ================ SPECIALIZED LOGGING METHODS ================
+
+  static void logApiCall(String method, String endpoint, [Map<String, dynamic>? params]) {
+    if (!_shouldLog(LogLevel.info)) return;
+
+    String message = 'API $method: $endpoint';
+    if (params != null && params.isNotEmpty) {
+      message += ' | Params: ${params.toString()}';
+    }
+
+    _log(LogLevel.info, message);
+  }
+
+  static void logApiResponse(String endpoint, int statusCode, [dynamic responseData]) {
+    if (!_shouldLog(LogLevel.info)) return;
+
+    String message = 'API Response: $endpoint | Status: $statusCode';
+    if (responseData != null) {
+      message += ' | Data: ${responseData.toString()}';
+    }
+
+    _log(LogLevel.info, message);
+  }
+
+  static void logApiError(String endpoint, dynamic error) {
+    String message = 'API Error: $endpoint';
+    _log(LogLevel.error, message, error);
+  }
+
+  static void logCartAction(String action, [Map<String, dynamic>? details]) {
+    if (!_shouldLog(LogLevel.info)) return;
+
+    String message = 'Cart Action: $action';
+    if (details != null && details.isNotEmpty) {
+      message += ' | Details: ${details.toString()}';
+    }
+
+    _log(LogLevel.info, message);
+  }
+
+  static void logUserAction(String action, [Map<String, dynamic>? context]) {
+    if (!_shouldLog(LogLevel.info)) return;
+
+    String message = 'User Action: $action';
+    if (context != null && context.isNotEmpty) {
+      message += ' | Context: ${context.toString()}';
+    }
+
+    _log(LogLevel.info, message);
+  }
+
+  static void logNavigation(String from, String to, [Map<String, dynamic>? arguments]) {
+    if (!_shouldLog(LogLevel.debug)) return;
+
+    String message = 'Navigation: $from → $to';
+    if (arguments != null && arguments.isNotEmpty) {
+      message += ' | Args: ${arguments.toString()}';
+    }
+
+    _log(LogLevel.debug, message);
+  }
+
+  static void logPerformance(String operation, Duration duration, [Map<String, dynamic>? metrics]) {
+    if (!_shouldLog(LogLevel.info)) return;
+
+    String message = 'Performance: $operation took ${duration.inMilliseconds}ms';
+    if (metrics != null && metrics.isNotEmpty) {
+      message += ' | Metrics: ${metrics.toString()}';
+    }
+
+    _log(LogLevel.info, message);
+  }
+
 
   // Enable/disable logging
   static void enable() => _isEnabled = true;
@@ -70,10 +160,39 @@ class Logger {
     }
   }
 
-  // Performance logging
-  static void logPerformance(String operation, Duration duration) {
-    if (_shouldLog(LogLevel.info)) {
-      _log(LogLevel.info, '⏱️ Performance: $operation took ${duration.inMilliseconds}ms');
+// ================ CRASH REPORTING INTEGRATION ================
+
+  static void logCrash(dynamic error, StackTrace? stackTrace, [Map<String, dynamic>? context]) {
+    String message = 'Application Crash';
+    if (context != null && context.isNotEmpty) {
+      message += ' | Context: ${context.toString()}';
+    }
+
+    _log(LogLevel.error, message, error);
+
+    // In a production app, you would integrate with crash reporting services like:
+    // - Firebase Crashlytics
+    // - Sentry
+    // - Bugsnag
+    // FirebaseCrashlytics.instance.recordError(error, stackTrace, context: context);
+  }
+
+  // ================ LOG FILTERING AND SEARCH ================
+
+  static void logWithTags(String message, List<String> tags, [LogLevel level = LogLevel.info]) {
+    String tagString = tags.map((tag) => '#$tag').join(' ');
+    _log(level, '$message | Tags: $tagString');
+  }
+
+  static void logFeatureUsage(String feature, [Map<String, dynamic>? metadata]) {
+    logWithTags(
+      'Feature Used: $feature',
+      ['feature_usage', feature.toLowerCase().replaceAll(' ', '_')],
+      LogLevel.info,
+    );
+
+    if (metadata != null && metadata.isNotEmpty) {
+      logInfo('Feature Metadata: ${metadata.toString()}');
     }
   }
 

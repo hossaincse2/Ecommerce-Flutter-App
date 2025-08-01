@@ -1884,9 +1884,6 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
     }
   }
 
-  void _downloadInvoice() async {
-    await _downloadInvoice();
-  }
 
   void _contactSupport() {
     UIUtils.showSuccessSnackBar(context, 'Redirecting to support...');

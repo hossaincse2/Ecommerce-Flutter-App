@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../models/category.dart';
 import '../models/hero_image.dart';
 import '../services/api_service.dart';
+import '../services/cart_service.dart';
 import '../utils/ui_utils.dart';
+import '../widgets/common/cart_drawer_widget.dart';
 import '../widgets/common/loading_widgets.dart';
 import '../widgets/common/shared_widgets.dart';
 
@@ -21,11 +24,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool isLoadingMore = false;
   int currentPage = 1;
   bool hasMoreProducts = true;
-
-  // Cart state
-  List<CartItem> cartItems = [];
-  int cartItemCount = 0;
-  double cartTotal = 0.0;
 
   // ================ CONTROLLERS ================
   PageController _pageController = PageController();
@@ -46,7 +44,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _loadData();
     _scrollController.addListener(_onScroll);
     _initializeAnimations();
-    _loadCartData();
+    // Initialize cart when screen initializes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<CartService>(context, listen: false).initialize();
+    });
   }
 
   void _initializeAnimations() {
@@ -101,82 +102,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _loadMoreProducts();
       }
     }
-  }
-
-  // ================ CART METHODS ================
-
-  void _loadCartData() {
-    // Simulate loading cart data - replace with actual cart service
-    setState(() {
-      cartItems = [
-        CartItem(
-          product: Product(
-            id: 1,
-            name: "Sample Product 1",
-            slug: "sample-product-1",
-            unitPrice: 150.0,
-            salePrice: 120.0,
-            stock: 50,
-            category: "Electronics",
-            brand: "Brand A",
-            previewImage: "https://via.placeholder.com/150",
-            freeDelivery: true,
-            preOrder: false,
-            lastMonthSoldItem: '25',
-            productRating: 4.5,
-            totalRating: '120',
-          ),
-          quantity: 2,
-        ),
-        CartItem(
-          product: Product(
-            id: 2,
-            name: "Sample Product 2",
-            slug: "sample-product-2",
-            unitPrice: 200.0,
-            salePrice: 0.0,
-            stock: 30,
-            category: "Fashion",
-            brand: "Brand B",
-            previewImage: "https://via.placeholder.com/150",
-            freeDelivery: false,
-            preOrder: true,
-            lastMonthSoldItem: '15',
-            productRating: 4.2,
-            totalRating: '85',
-          ),
-          quantity: 1,
-        ),
-      ];
-      _updateCartSummary();
-    });
-  }
-
-  void _updateCartSummary() {
-    cartItemCount = cartItems.fold(0, (sum, item) => sum + item.quantity);
-    cartTotal = cartItems.fold(0.0, (sum, item) {
-      final price = item.product.salePrice > 0 ? item.product.salePrice : item.product.unitPrice;
-      return sum + (price * item.quantity);
-    });
-  }
-
-  void _removeFromCart(int index) {
-    setState(() {
-      cartItems.removeAt(index);
-      _updateCartSummary();
-    });
-  }
-
-  void _updateQuantity(int index, int newQuantity) {
-    if (newQuantity <= 0) {
-      _removeFromCart(index);
-      return;
-    }
-
-    setState(() {
-      cartItems[index].quantity = newQuantity;
-      _updateCartSummary();
-    });
   }
 
   // ================ API METHODS ================
@@ -262,7 +187,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       key: _scaffoldKey,
       backgroundColor: Colors.grey[50],
       appBar: _buildAppBar(),
-      endDrawer: _buildCartDrawer(),
+      endDrawer: const CartDrawer(), // Using the provided CartDrawer widget
       body: isLoading
           ? LoadingWidgets.buildLoadingScreen()
           : _buildBody(),
@@ -348,46 +273,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onPressed: () => UIUtils.onSearchTap(context),
           ),
         ),
-        // Cart Icon with Badge
+        // Cart Icon with Badge using Provider
         Container(
           margin: EdgeInsets.symmetric(horizontal: 4),
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.2),
             shape: BoxShape.circle,
           ),
-          child: Stack(
-            children: [
-              IconButton(
-                icon: Icon(Icons.shopping_cart_outlined, color: Colors.white, size: 24),
-                onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-              ),
-              if (cartItemCount > 0)
-                Positioned(
-                  right: 6,
-                  top: 6,
-                  child: Container(
-                    padding: EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1),
-                    ),
-                    constraints: BoxConstraints(
-                      minWidth: 18,
-                      minHeight: 18,
-                    ),
-                    child: Text(
-                      cartItemCount > 99 ? '99+' : cartItemCount.toString(),
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
+          child: Consumer<CartService>(
+            builder: (context, cartService, child) {
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: Icon(Icons.shopping_cart_outlined, color: Colors.white, size: 24),
+                    onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
                   ),
-                ),
-            ],
+                  if (cartService.totalItems > 0)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1),
+                        ),
+                        constraints: BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        child: Text(
+                          cartService.totalItems > 99 ? '99+' : cartService.totalItems.toString(),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ),
         SizedBox(width: 8),
@@ -395,331 +324,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ================ CART DRAWER ================
-
-  Widget _buildCartDrawer() {
-    return Drawer(
-      width: MediaQuery.of(context).size.width * 0.85,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.white,
-              Colors.grey[50]!,
-            ],
-          ),
-        ),
-        child: Column(
-          children: [
-            _buildCartHeader(),
-            Expanded(
-              child: cartItems.isEmpty ? _buildEmptyCart() : _buildCartItems(),
-            ),
-            if (cartItems.isNotEmpty) _buildCartFooter(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCartHeader() {
-    return Container(
-      padding: EdgeInsets.fromLTRB(20, 50, 20, 20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF2E86AB), Color(0xFF47A3C7)],
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.shopping_cart, color: Colors.white, size: 28),
-          SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Shopping Cart',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  '${cartItemCount} items',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: Icon(Icons.close, color: Colors.white),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyCart() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.shopping_cart_outlined,
-            size: 80,
-            color: Colors.grey[400],
-          ),
-          SizedBox(height: 16),
-          Text(
-            'Your cart is empty',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[600],
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Add some products to get started',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey[500],
-            ),
-          ),
-          SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFF2E86AB),
-              foregroundColor: Colors.white,
-              padding: EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(25),
-              ),
-            ),
-            child: Text('Continue Shopping'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCartItems() {
-    return ListView.builder(
-      padding: EdgeInsets.all(16),
-      itemCount: cartItems.length,
-      itemBuilder: (context, index) {
-        final cartItem = cartItems[index];
-        final product = cartItem.product;
-        final price = product.salePrice > 0 ? product.salePrice : product.unitPrice;
-
-        return Card(
-          margin: EdgeInsets.only(bottom: 12),
-          elevation: 2,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Padding(
-            padding: EdgeInsets.all(12),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.network(
-                    product.previewImage,
-                    width: 60,
-                    height: 60,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        width: 60,
-                        height: 60,
-                        color: Colors.grey[200],
-                        child: Icon(Icons.image_not_supported, color: Colors.grey),
-                      );
-                    },
-                  ),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        product.name,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        product.brand,
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 12,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Text(
-                            '৳${price.toStringAsFixed(0)}',
-                            style: TextStyle(
-                              color: Color(0xFF2E86AB),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                          if (product.salePrice > 0)
-                            Padding(
-                              padding: EdgeInsets.only(left: 8),
-                              child: Text(
-                                '৳${product.unitPrice.toStringAsFixed(0)}',
-                                style: TextStyle(
-                                  color: Colors.grey[500],
-                                  fontSize: 12,
-                                  decoration: TextDecoration.lineThrough,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          onPressed: () => _updateQuantity(index, cartItem.quantity - 1),
-                          icon: Icon(Icons.remove_circle_outline),
-                          color: Color(0xFF2E86AB),
-                          constraints: BoxConstraints(),
-                          padding: EdgeInsets.all(4),
-                        ),
-                        Container(
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey[300]!),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            cartItem.quantity.toString(),
-                            style: TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => _updateQuantity(index, cartItem.quantity + 1),
-                          icon: Icon(Icons.add_circle_outline),
-                          color: Color(0xFF2E86AB),
-                          constraints: BoxConstraints(),
-                          padding: EdgeInsets.all(4),
-                        ),
-                      ],
-                    ),
-                    TextButton(
-                      onPressed: () => _removeFromCart(index),
-                      child: Text(
-                        'Remove',
-                        style: TextStyle(
-                          color: Colors.red,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildCartFooter() {
-    return Container(
-      padding: EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 8,
-            offset: Offset(0, -2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Total (${cartItemCount} items):',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                '৳${cartTotal.toStringAsFixed(0)}',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2E86AB),
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                // Navigate to checkout
-                Navigator.pushNamed(context, '/checkout');
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF2E86AB),
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 2,
-              ),
-              child: Text(
-                'Proceed to Checkout',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // ================ MAIN BODY ================
 
   Widget _buildBody() {
     return RefreshIndicator(
-      onRefresh: _loadData,
+      onRefresh: () async {
+        await _loadData();
+        // Refresh cart as well
+        await Provider.of<CartService>(context, listen: false).refreshCart();
+      },
       color: Color(0xFF2E86AB),
       child: SingleChildScrollView(
         controller: _scrollController,
@@ -963,7 +576,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return GestureDetector(
       onTap: () {
         if (product.id != null) {
-          Navigator.pushNamed(context, '/product-details', arguments: product.slug.toString());
+          Navigator.pushNamed(context, '/product-details', arguments: product.slug.toString())
+              .then((_) {
+            // Refresh cart when returning from product details
+            Provider.of<CartService>(context, listen: false).refreshCart();
+          });
         }
       },
       child: Container(
@@ -1088,15 +705,4 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ],
     );
   }
-}
-
-// ================ CART ITEM MODEL ================
-class CartItem {
-  final Product product;
-  int quantity;
-
-  CartItem({
-    required this.product,
-    required this.quantity,
-  });
 }
