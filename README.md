@@ -26,9 +26,9 @@ A modern, feature-rich ecommerce mobile application built with Flutter, featurin
 |:-----------:|:----------:|:---------------:|:----:|
 | ![Home](assets/screenshots/home.png) | ![Categories](assets/screenshots/categories.png) | ![Product](assets/screenshots/product.png) | ![Cart](assets/screenshots/cart.png) |
 
-| Profile | Orders | Checkout | Success |
-|:-------:|:------:|:--------:|:-------:|
-| ![Profile](assets/screenshots/profile.png) | ![Orders](assets/screenshots/orders.png) | ![Checkout](assets/screenshots/checkout.png) | !(![order_details.png](assets/screenshots/order_details.png)) |
+| Profile | Orders | Checkout |                        Order Details                        |
+|:-------:|:------:|:--------:|:-----------------------------------------------------------:|
+| ![Profile](assets/screenshots/profile.png) | ![Orders](assets/screenshots/orders.png) | ![Checkout](assets/screenshots/checkout.png) | ![order_details.png](assets/screenshots/order_details.png)) |
 
 ## 🛠 Installation
 
