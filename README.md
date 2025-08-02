@@ -73,7 +73,7 @@ A modern, feature-rich ecommerce mobile application built with Flutter, featurin
 - **Target Android Version**: Android 14 (API level 34)
 
 **Download Links:**
-- [📱 Download APK (arm64-v8a)]([app-ecommerce.apk](release/app-ecommerce.apk))
+- [📱 Download APK (arm64-v8a)](https://github.com/hossaincse2/Ecommerce-Flutter-App/blob/main/release/app-ecommerce.apk)
 
 ### Installation Instructions
 1. Download the appropriate APK file for your device
@@ -86,7 +86,7 @@ A modern, feature-rich ecommerce mobile application built with Flutter, featurin
 ### App Walkthrough
 Watch our comprehensive demo video showcasing all the key features:
 
-[![Karbar Shop Demo](![demo.png](assets/screenshots/demo.png))](https://www.loom.com/share/670fc01cb065468da154f73ebcad85fd?sid=bfc6a420-e171-4d27-a7bf-f86d07583bc3)
+[![Karbar Shop Demo](https://github.com/hossaincse2/Ecommerce-Flutter-App/blob/main/assets/screenshots/demo.png)](https://www.loom.com/share/670fc01cb065468da154f73ebcad85fd?sid=bfc6a420-e171-4d27-a7bf-f86d07583bc3)
 
 **Video Contents:**
 - 0:00 - App Launch & Splash Screen
