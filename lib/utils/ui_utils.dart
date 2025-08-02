@@ -458,8 +458,8 @@ class UIUtils {
 
   // ================ NAVIGATION HANDLERS ================
 
-  static void onCategoryTap(BuildContext context, String categoryName) {
-    Navigator.pushNamed(context, '/category', arguments: categoryName);
+  static void onCategoryTap(BuildContext context, String slug) {
+    Navigator.pushNamed(context, '/category-products', arguments: slug);
   }
 
   static void onProductTap(BuildContext context, String productSlug) {

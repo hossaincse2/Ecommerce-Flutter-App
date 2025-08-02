@@ -92,12 +92,21 @@ class KarbarShopApp extends StatelessWidget {
           '/profile': (context) => ProfileScreen(),
           '/shop': (context) => ShopScreen(),
           '/category-products': (context) {
-            final args = ModalRoute.of(context)!.settings.arguments as Map<String, String>;
-            return CategoryProductsScreen(categoryId: args['categoryId']!);
+            final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+            return CategoryProductsScreen(slug: args['slug']!);
           },
           '/product-details': (context) {
             final args = ModalRoute.of(context)!.settings.arguments;
-            final slug = (args is Map<String, dynamic> ? args['slug']?.toString() : null) ?? 'default_id';
+            String slug;
+
+            if (args is Map<String, dynamic>) {
+              slug = args['slug']?.toString() ?? 'default_id';
+            } else if (args is String) {
+              slug = args;
+            } else {
+              slug = 'default_id';
+            }
+
             return ProductDetailsScreen(slug: slug);
           },
           '/login': (context) => LoginScreen(),

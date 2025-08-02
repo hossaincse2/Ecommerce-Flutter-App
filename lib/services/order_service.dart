@@ -10,6 +10,206 @@ class OrderService {
   static const String baseUrl = 'https://admin.karbar.shop/api';
   static const String orderEndpoint = '/product-order';
 
+  // Enhanced method for authenticated users
+  static Future<OrderResponse> placeOrderWithAuth({
+    required Map<String, dynamic> orderData,
+    String? authToken,
+  }) async {
+    try {
+      // Prepare headers
+      Map<String, String> headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'KarbarShop-Mobile/1.0',
+      };
+
+      // Add auth token if provided
+      if (authToken != null && authToken.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $authToken';
+        Logger.logInfo('Placing order with authentication');
+      } else {
+        Logger.logInfo('Placing order as guest');
+      }
+
+      // Convert cart items to proper format
+      List<Map<String, dynamic>> products = (orderData['cart_items'] as List).map((item) {
+        return {
+          'product_name': item['product_name'],
+          'product_id': item['product_id'],
+          'quantity': item['quantity'],
+          'price': item['price'],
+          'product_variant_id': item['variant']?['id'], // Include variant ID if available
+          'total': item['total_price'],
+        };
+      }).toList();
+
+      // Calculate total quantity
+      int totalQuantity = (orderData['cart_items'] as List).fold<int>(0, (int sum, dynamic item) {
+        return sum + (item['quantity'] as int);
+      });
+
+      // Build the final order payload
+      Map<String, dynamic> orderPayload = {
+        'name': orderData['name'],
+        'phone': orderData['phone'],
+        'email': orderData['email'],
+        'address': orderData['address'],
+        'special_instruction': orderData['special_instruction'] ?? '',
+        'payment_method': _convertPaymentMethod(orderData['payment_method']),
+        'products': products,
+        'delivery_fee': orderData['delivery_fee'],
+        'total_quantity': totalQuantity,
+        'total_amount': orderData['total_amount'],
+        'delivery_location': orderData['delivery_location'] ?? 'inside_dhaka',
+        'currency': 'bdt',
+        'discount_amount': orderData['discount_amount'] ?? 0,
+        'sub_total': orderData['sub_total'],
+        'create_account': false,
+      };
+
+      Logger.logInfo('Placing order with payload: ${json.encode(orderPayload)}');
+
+      final response = await http.post(
+        Uri.parse('$baseUrl$orderEndpoint'),
+        headers: headers,
+        body: json.encode(orderPayload),
+      );
+
+      Logger.logInfo('Order API Response Status: ${response.statusCode}');
+      Logger.logInfo('Order API Response Body: ${response.body}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseData = json.decode(response.body);
+        final orderResponse = OrderResponse.fromJson(responseData);
+
+        if (orderResponse.success) {
+          Logger.logSuccess('Order placed successfully');
+          return orderResponse;
+        } else {
+          Logger.logError('Order failed: ${orderResponse.message}');
+          return OrderResponse(
+            success: false,
+            message: orderResponse.message.isNotEmpty
+                ? orderResponse.message
+                : 'Failed to place order',
+          );
+        }
+      } else {
+        Logger.logError('Order API error: ${response.statusCode} - ${response.reasonPhrase}');
+
+        // Try to parse error message from response
+        try {
+          final errorData = json.decode(response.body);
+          String errorMessage = errorData['message'] ?? 'Failed to place order';
+
+          // Handle specific auth errors
+          if (response.statusCode == 401) {
+            errorMessage = 'Session expired. Please login again.';
+          }
+
+          return OrderResponse(success: false, message: errorMessage);
+        } catch (e) {
+          return OrderResponse(
+            success: false,
+            message: 'Failed to place order. Please try again.',
+          );
+        }
+      }
+    } catch (e) {
+      Logger.logError('Error placing order', e);
+      return OrderResponse(
+        success: false,
+        message: 'Network error. Please check your connection and try again.',
+      );
+    }
+  }
+
+  // Get user orders (for authenticated users)
+  static Future<List<dynamic>> getUserOrders(String authToken) async {
+    try {
+      Logger.logInfo('Fetching user orders');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/user/orders'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $authToken',
+          'User-Agent': 'KarbarShop-Mobile/1.0',
+        },
+      );
+
+      Logger.logInfo('User orders response status: ${response.statusCode}');
+      Logger.logInfo('User orders response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+
+        if (responseData['success'] == true) {
+          Logger.logSuccess('Successfully fetched user orders');
+          return responseData['orders'] ?? responseData['data'] ?? [];
+        } else {
+          Logger.logError('Failed to fetch orders: ${responseData['message']}');
+          return [];
+        }
+      } else if (response.statusCode == 401) {
+        Logger.logError('Unauthorized - Invalid or expired token');
+        throw Exception('Session expired. Please login again.');
+      } else {
+        Logger.logError('Orders API error: ${response.statusCode}');
+        throw Exception('Failed to fetch orders');
+      }
+    } catch (e) {
+      Logger.logError('Error fetching user orders', e);
+      rethrow;
+    }
+  }
+
+  // Get order details by ID (for authenticated users)
+  static Future<Map<String, dynamic>?> getOrderDetails(String authToken, String orderId) async {
+    try {
+      Logger.logInfo('Fetching order details for ID: $orderId');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/user/orders/$orderId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $authToken',
+          'User-Agent': 'KarbarShop-Mobile/1.0',
+        },
+      );
+
+      Logger.logInfo('Order details response status: ${response.statusCode}');
+      Logger.logInfo('Order details response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+
+        if (responseData['success'] == true) {
+          Logger.logSuccess('Successfully fetched order details');
+          return responseData['order'] ?? responseData['data'];
+        } else {
+          Logger.logError('Failed to fetch order details: ${responseData['message']}');
+          return null;
+        }
+      } else if (response.statusCode == 401) {
+        Logger.logError('Unauthorized - Invalid or expired token');
+        throw Exception('Session expired. Please login again.');
+      } else if (response.statusCode == 404) {
+        Logger.logError('Order not found');
+        throw Exception('Order not found');
+      } else {
+        Logger.logError('Order details API error: ${response.statusCode}');
+        throw Exception('Failed to fetch order details');
+      }
+    } catch (e) {
+      Logger.logError('Error fetching order details', e);
+      rethrow;
+    }
+  }
+
+  // Legacy method for backward compatibility (guest orders)
   static Future<OrderResponse> placeOrder({
     required String name,
     required String phone,
@@ -59,7 +259,7 @@ class OrderService {
         createAccount: createAccount,
       );
 
-      Logger.logInfo('Placing order with payload: ${json.encode(orderRequest.toJson())}');
+      Logger.logInfo('Placing guest order with payload: ${json.encode(orderRequest.toJson())}');
 
       final response = await http.post(
         Uri.parse('$baseUrl$orderEndpoint'),
@@ -179,5 +379,25 @@ class OrderService {
     // With country code: 8801xxxxxxxxx (13 digits)
     return cleanPhone.length == 11 && cleanPhone.startsWith('01') ||
         cleanPhone.length == 13 && cleanPhone.startsWith('8801');
+  }
+
+  // Helper methods for auth error handling
+  static String getErrorMessage(dynamic error) {
+    if (error is Exception) {
+      return error.toString().replaceFirst('Exception: ', '');
+    }
+    return 'An unexpected error occurred';
+  }
+
+  static bool isNetworkError(dynamic error) {
+    return error.toString().contains('Network') ||
+        error.toString().contains('connection') ||
+        error.toString().contains('timeout');
+  }
+
+  static bool isAuthError(dynamic error) {
+    return error.toString().contains('Session expired') ||
+        error.toString().contains('Unauthorized') ||
+        error.toString().contains('Invalid token');
   }
 }

@@ -10,6 +10,115 @@ class AuthService {
   static const String _baseUrl = 'https://admin.karbar.shop/api';
   static const Duration _timeout = Duration(seconds: 30);
 
+  // ================ REGISTRATION API ================
+
+  static Future<RegisterResponse> register({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+    required String passwordConfirmation,
+  }) async {
+    try {
+      if (name.trim().isEmpty) {
+        throw AuthException('Name cannot be empty');
+      }
+
+      if (email.trim().isEmpty) {
+        throw AuthException('Email cannot be empty');
+      }
+
+      if (phone.trim().isEmpty) {
+        throw AuthException('Phone cannot be empty');
+      }
+
+      if (password.trim().isEmpty) {
+        throw AuthException('Password cannot be empty');
+      }
+
+      if (passwordConfirmation.trim().isEmpty) {
+        throw AuthException('Password confirmation cannot be empty');
+      }
+
+      if (password != passwordConfirmation) {
+        throw AuthException('Passwords do not match');
+      }
+
+      Logger.logInfo('Attempting registration for user: $email');
+
+      final url = Uri.parse('$_baseUrl/register');
+      final body = {
+        'name': name.trim(),
+        'email': email.trim(),
+        'phone': phone.trim(),
+        'password': password,
+        'password_confirmation': passwordConfirmation,
+      };
+
+      Logger.logInfo('Registration URL: $url');
+      Logger.logInfo('Registration payload: ${json.encode(body)}');
+
+      final response = await http.post(
+        url,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'Karbar-Shop-App/1.0.0',
+        },
+        body: json.encode(body),
+      ).timeout(_timeout);
+
+      Logger.logInfo('Registration response status: ${response.statusCode}');
+      Logger.logInfo('Registration response body: ${response.body}');
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (data['success'] == true) {
+          final registerResponse = RegisterResponse.fromJson(data);
+          Logger.logSuccess('Registration successful for user: $email');
+          return registerResponse;
+        } else {
+          final errorMessage = data['message'] ?? 'Registration failed';
+          Logger.logError('Registration failed: $errorMessage', null);
+          throw AuthException(errorMessage);
+        }
+      } else if (response.statusCode == 422) {
+        final errorMessage = data['message'] ?? 'Validation error';
+        final errors = data['errors'];
+        if (errors != null && errors is Map) {
+          final firstError = errors.values.first;
+          final errorText = firstError is List ? firstError.first : firstError.toString();
+          throw AuthException(errorText);
+        }
+        throw AuthException(errorMessage);
+      } else if (response.statusCode == 409) {
+        final errorMessage = data['message'] ?? 'User already exists';
+        Logger.logError('Registration failed - User exists: $errorMessage', null);
+        throw AuthException(errorMessage);
+      } else {
+        final errorMessage = data['message'] ?? 'Registration failed with status ${response.statusCode}';
+        Logger.logError('Registration failed: $errorMessage', null);
+        throw AuthException(errorMessage);
+      }
+
+    } catch (e) {
+      if (e is AuthException) {
+        rethrow;
+      }
+
+      Logger.logError('Registration error', e);
+
+      if (e.toString().contains('TimeoutException')) {
+        throw AuthException('Connection timeout. Please check your internet connection.');
+      } else if (e.toString().contains('SocketException')) {
+        throw AuthException('Network error. Please check your internet connection.');
+      } else {
+        throw AuthException('Registration failed: ${e.toString()}');
+      }
+    }
+  }
+
   // ================ LOGIN API ================
 
   static Future<LoginResponse> login({

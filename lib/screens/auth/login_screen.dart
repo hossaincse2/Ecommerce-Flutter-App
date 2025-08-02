@@ -1,5 +1,6 @@
 // screens/auth/login_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../constants/app_constants.dart';
 import '../../utils/ui_utils.dart';
 import '../../widgets/common/shared_widgets.dart';
@@ -12,26 +13,61 @@ class LoginScreen extends StatefulWidget {
   _LoginScreenState createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _emailUsernameController = TextEditingController();
   final _passwordController = TextEditingController();
+
+  final _emailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
+
   bool _isPasswordHidden = true;
   bool _isLoading = false;
   bool _rememberMe = false;
 
   final AuthManager _authManager = AuthManager();
 
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
   @override
   void initState() {
     super.initState();
     _checkIfAlreadyLoggedIn();
+
+    _animationController = AnimationController(
+      duration: Duration(milliseconds: 800),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
+
+    _slideAnimation = Tween<Offset>(
+      begin: Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _animationController.forward();
   }
 
   @override
   void dispose() {
     _emailUsernameController.dispose();
     _passwordController.dispose();
+    _emailFocus.dispose();
+    _passwordFocus.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -48,7 +84,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
+    // Dismiss keyboard
+    FocusScope.of(context).unfocus();
+
     if (!_formKey.currentState!.validate()) {
+      UIUtils.showErrorSnackBar(context, 'Please fix the errors above');
       return;
     }
 
@@ -69,7 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (success) {
         Logger.logSuccess('Login successful');
-        UIUtils.showSuccessSnackBar(context, 'Login successful!');
+        UIUtils.showSuccessSnackBar(context, 'Welcome back!');
 
         // Small delay to show success message
         await Future.delayed(Duration(milliseconds: 500));
@@ -109,43 +149,76 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _handleBackButton() {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    } else {
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/',
+            (route) => false,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppConstants.backgroundColor,
-      appBar: AppBar(
-        title: Text('Login'),
-        backgroundColor: Colors.white,
-        foregroundColor: Color(0xFF2E86AB),
-        elevation: 1,
-        leading: Navigator.canPop(context)
-            ? IconButton(
-          icon: Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        )
-            : null,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.all(AppConstants.defaultPadding),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(height: 40),
-              _buildHeader(),
-              SizedBox(height: 40),
-              _buildLoginForm(),
-              SizedBox(height: 30),
-              _buildLoginButton(),
-              SizedBox(height: 20),
-              _buildForgotPassword(),
-              SizedBox(height: 30),
-              _buildDivider(),
-              SizedBox(height: 30),
-              _buildSocialLogin(),
-              SizedBox(height: 40),
-              _buildSignUpPrompt(),
-            ],
+    return WillPopScope(
+      onWillPop: () async {
+        _handleBackButton();
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: AppConstants.backgroundColor,
+        appBar: AppBar(
+          title: Text(
+            'Welcome Back',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+            ),
+          ),
+          backgroundColor: Colors.white,
+          foregroundColor: AppConstants.primaryColor,
+          elevation: 0,
+          systemOverlayStyle: SystemUiOverlayStyle.dark,
+          leading: Navigator.canPop(context)
+              ? IconButton(
+            icon: Icon(Icons.arrow_back_ios_rounded),
+            onPressed: _handleBackButton,
+          )
+              : null,
+        ),
+        body: SafeArea(
+          child: FadeTransition(
+            opacity: _fadeAnimation,
+            child: SlideTransition(
+              position: _slideAnimation,
+              child: SingleChildScrollView(
+                physics: BouncingScrollPhysics(),
+                padding: EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(height: 20),
+                    _buildHeader(),
+                    SizedBox(height: 40),
+                    _buildLoginForm(),
+                    SizedBox(height: 32),
+                    _buildLoginButton(),
+                    SizedBox(height: 20),
+                    _buildForgotPassword(),
+                    SizedBox(height: 32),
+                    _buildDivider(),
+                    SizedBox(height: 24),
+                    _buildSocialLogin(),
+                    SizedBox(height: 32),
+                    _buildSignUpPrompt(),
+                    SizedBox(height: 40),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -155,26 +228,36 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildHeader() {
     return Column(
       children: [
-        Icon(
-          Icons.lock_outline,
-          size: 80,
-          color: AppConstants.primaryColor,
+        Container(
+          padding: EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppConstants.primaryColor.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.fingerprint_rounded,
+            size: 48,
+            color: AppConstants.primaryColor,
+          ),
         ),
-        SizedBox(height: 20),
+        SizedBox(height: 24),
         Text(
           'Welcome Back!',
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
             color: AppConstants.textPrimaryColor,
+            letterSpacing: -0.5,
           ),
         ),
         SizedBox(height: 8),
         Text(
-          'Sign in to your account',
+          'Sign in to continue your journey',
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 16,
             color: AppConstants.textSecondaryColor,
+            height: 1.4,
           ),
         ),
       ],
@@ -189,7 +272,7 @@ class _LoginScreenState extends State<LoginScreen> {
           _buildEmailUsernameField(),
           SizedBox(height: 20),
           _buildPasswordField(),
-          SizedBox(height: 15),
+          SizedBox(height: 16),
           _buildRememberMeRow(),
         ],
       ),
@@ -197,107 +280,185 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildEmailUsernameField() {
-    return TextFormField(
-      controller: _emailUsernameController,
-      keyboardType: TextInputType.text,
-      textInputAction: TextInputAction.next,
-      decoration: InputDecoration(
-        labelText: 'Email or Username',
-        hintText: 'Enter your email or username',
-        prefixIcon: Icon(Icons.person_outline),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-          borderSide: BorderSide(color: AppConstants.primaryColor),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-          borderSide: BorderSide(color: Colors.red),
-        ),
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
+        ],
       ),
-      validator: (value) {
-        if (value == null || value.trim().isEmpty) {
-          return 'Please enter your email or username';
-        }
-        if (value.trim().length < 3) {
-          return 'Email or username must be at least 3 characters';
-        }
-        return null;
-      },
+      child: TextFormField(
+        controller: _emailUsernameController,
+        focusNode: _emailFocus,
+        keyboardType: TextInputType.text,
+        textInputAction: TextInputAction.next,
+        onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
+        decoration: InputDecoration(
+          labelText: 'Email or Username',
+          hintText: 'Enter your email or username',
+          prefixIcon: Container(
+            margin: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppConstants.primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              Icons.person_outline_rounded,
+              color: AppConstants.primaryColor,
+              size: 20,
+            ),
+          ),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: AppConstants.primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.red.shade400),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.red.shade400, width: 2),
+          ),
+          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
+        validator: (value) {
+          if (value == null || value.trim().isEmpty) {
+            return 'Please enter your email or username';
+          }
+          if (value.trim().length < 3) {
+            return 'Email or username must be at least 3 characters';
+          }
+          return null;
+        },
+      ),
     );
   }
 
   Widget _buildPasswordField() {
-    return TextFormField(
-      controller: _passwordController,
-      obscureText: _isPasswordHidden,
-      textInputAction: TextInputAction.done,
-      onFieldSubmitted: (_) => _handleLogin(),
-      decoration: InputDecoration(
-        labelText: 'Password',
-        hintText: 'Enter your password',
-        prefixIcon: Icon(Icons.lock_outline),
-        suffixIcon: IconButton(
-          icon: Icon(
-            _isPasswordHidden ? Icons.visibility : Icons.visibility_off,
+    return Container(
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: Offset(0, 4),
           ),
-          onPressed: () {
-            setState(() {
-              _isPasswordHidden = !_isPasswordHidden;
-            });
-          },
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-          borderSide: BorderSide(color: AppConstants.primaryColor),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-          borderSide: BorderSide(color: Colors.red),
-        ),
+        ],
       ),
-      validator: (value) {
-        if (value == null || value.isEmpty) {
-          return 'Please enter your password';
-        }
-        if (value.length < 3) {
-          return 'Password must be at least 3 characters';
-        }
-        return null;
-      },
+      child: TextFormField(
+        controller: _passwordController,
+        focusNode: _passwordFocus,
+        obscureText: _isPasswordHidden,
+        textInputAction: TextInputAction.done,
+        onFieldSubmitted: (_) => _handleLogin(),
+        decoration: InputDecoration(
+          labelText: 'Password',
+          hintText: 'Enter your password',
+          prefixIcon: Container(
+            margin: EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppConstants.primaryColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              Icons.lock_outline_rounded,
+              color: AppConstants.primaryColor,
+              size: 20,
+            ),
+          ),
+          suffixIcon: IconButton(
+            icon: Icon(
+              _isPasswordHidden ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+              color: Colors.grey.shade600,
+            ),
+            onPressed: () {
+              setState(() {
+                _isPasswordHidden = !_isPasswordHidden;
+              });
+            },
+          ),
+          filled: true,
+          fillColor: Colors.white,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.grey.shade200),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: AppConstants.primaryColor, width: 2),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.red.shade400),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.red.shade400, width: 2),
+          ),
+          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
+        validator: (value) {
+          if (value == null || value.isEmpty) {
+            return 'Please enter your password';
+          }
+          if (value.length < 3) {
+            return 'Password must be at least 3 characters';
+          }
+          return null;
+        },
+      ),
     );
   }
 
   Widget _buildRememberMeRow() {
     return Row(
       children: [
-        Checkbox(
-          value: _rememberMe,
-          onChanged: (value) {
+        Transform.scale(
+          scale: 1.1,
+          child: Checkbox(
+            value: _rememberMe,
+            onChanged: (value) {
+              setState(() {
+                _rememberMe = value ?? false;
+              });
+            },
+            activeColor: AppConstants.primaryColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ),
+        GestureDetector(
+          onTap: () {
             setState(() {
-              _rememberMe = value ?? false;
+              _rememberMe = !_rememberMe;
             });
           },
-          activeColor: AppConstants.primaryColor,
-        ),
-        Text(
-          'Remember me',
-          style: TextStyle(
-            color: AppConstants.textSecondaryColor,
-            fontSize: 14,
+          child: Text(
+            'Remember me',
+            style: TextStyle(
+              color: AppConstants.textSecondaryColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ),
       ],
@@ -305,32 +466,60 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Widget _buildLoginButton() {
-    return ElevatedButton(
-      onPressed: _isLoading ? null : _handleLogin,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: AppConstants.primaryColor,
-        disabledBackgroundColor: AppConstants.primaryColor.withOpacity(0.6),
-        padding: EdgeInsets.symmetric(vertical: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-        ),
-        elevation: 2,
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppConstants.primaryColor.withOpacity(0.3),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+        ],
       ),
-      child: _isLoading
-          ? SizedBox(
-        height: 20,
-        width: 20,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _handleLogin,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppConstants.primaryColor,
+          disabledBackgroundColor: AppConstants.primaryColor.withOpacity(0.6),
+          foregroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(vertical: 18),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 0,
         ),
-      )
-          : Text(
-        'Login',
-        style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
+        child: _isLoading
+            ? Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            ),
+            SizedBox(width: 12),
+            Text(
+              'Signing In...',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        )
+            : Text(
+          'Sign In',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+            letterSpacing: 0.5,
+          ),
         ),
       ),
     );
@@ -340,7 +529,7 @@ class _LoginScreenState extends State<LoginScreen> {
     return Align(
       alignment: Alignment.center,
       child: TextButton(
-        onPressed: () {
+        onPressed: _isLoading ? null : () {
           Navigator.pushNamed(context, '/forgot-password');
         },
         child: Text(
@@ -348,7 +537,8 @@ class _LoginScreenState extends State<LoginScreen> {
           style: TextStyle(
             color: AppConstants.primaryColor,
             fontSize: 14,
-            fontWeight: FontWeight.w500,
+            fontWeight: FontWeight.w600,
+            decoration: TextDecoration.underline,
           ),
         ),
       ),
@@ -358,18 +548,46 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildDivider() {
     return Row(
       children: [
-        Expanded(child: Divider(color: Colors.grey.shade300)),
+        Expanded(
+          child: Container(
+            height: 1,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.transparent,
+                  Colors.grey.shade300,
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        ),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
           child: Text(
             'OR',
             style: TextStyle(
               color: AppConstants.textSecondaryColor,
-              fontSize: 14,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1,
             ),
           ),
         ),
-        Expanded(child: Divider(color: Colors.grey.shade300)),
+        Expanded(
+          child: Container(
+            height: 1,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.transparent,
+                  Colors.grey.shade300,
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -379,7 +597,7 @@ class _LoginScreenState extends State<LoginScreen> {
       children: [
         _buildSocialButton(
           'Continue with Google',
-          Icons.g_mobiledata,
+          'assets/icons/google.png', // You can use Icons.g_mobiledata if no asset
           Colors.red,
               () {
             UIUtils.showInfoSnackBar(context, 'Google login coming soon!');
@@ -388,8 +606,8 @@ class _LoginScreenState extends State<LoginScreen> {
         SizedBox(height: 12),
         _buildSocialButton(
           'Continue with Facebook',
-          Icons.facebook,
-          Colors.blue,
+          'assets/icons/facebook.png', // You can use Icons.facebook if no asset
+          Color(0xFF1877F2),
               () {
             UIUtils.showInfoSnackBar(context, 'Facebook login coming soon!');
           },
@@ -398,59 +616,81 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildSocialButton(String text, IconData icon, Color color, VoidCallback onPressed) {
-    return OutlinedButton(
-      onPressed: _isLoading ? null : onPressed,
-      style: OutlinedButton.styleFrom(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        side: BorderSide(color: Colors.grey.shade300),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppConstants.defaultRadius),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: color, size: 24),
-          SizedBox(width: 12),
-          Text(
-            text,
-            style: TextStyle(
-              color: AppConstants.textPrimaryColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
+  Widget _buildSocialButton(String text, String iconPath, Color color, VoidCallback onPressed) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: Offset(0, 2),
           ),
         ],
+      ),
+      child: OutlinedButton(
+        onPressed: _isLoading ? null : onPressed,
+        style: OutlinedButton.styleFrom(
+          backgroundColor: Colors.white,
+          padding: EdgeInsets.symmetric(vertical: 14),
+          side: BorderSide(color: Colors.grey.shade200),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Use icon if no asset available
+            Icon(
+              text.contains('Google') ? Icons.g_mobiledata : Icons.facebook,
+              color: color,
+              size: 24,
+            ),
+            SizedBox(width: 12),
+            Text(
+              text,
+              style: TextStyle(
+                color: AppConstants.textPrimaryColor,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildSignUpPrompt() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          "Don't have an account? ",
-          style: TextStyle(
-            color: AppConstants.textSecondaryColor,
-            fontSize: 14,
-          ),
-        ),
-        TextButton(
-          onPressed: _isLoading ? null : () {
-            Navigator.pushNamed(context, '/register');
-          },
-          child: Text(
-            'Sign Up',
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            "Don't have an account? ",
             style: TextStyle(
-              color: AppConstants.primaryColor,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
+              color: AppConstants.textSecondaryColor,
+              fontSize: 15,
             ),
           ),
-        ),
-      ],
+          GestureDetector(
+            onTap: _isLoading ? null : () {
+              Navigator.pushReplacementNamed(context, '/register');
+            },
+            child: Text(
+              'Sign Up',
+              style: TextStyle(
+                color: AppConstants.primaryColor,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

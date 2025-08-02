@@ -1,8 +1,11 @@
 // screens/checkout_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/cart_service.dart';
 import '../../services/order_service.dart';
+import '../../services/auth_service.dart';
+import '../../models/user.dart';
 import '../../utils/ui_utils.dart';
 
 class CheckoutScreen extends StatefulWidget {
@@ -21,6 +24,16 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String _paymentMethod = 'cash_on_delivery';
   String _deliveryLocation = 'inside_dhaka';
   bool _isProcessing = false;
+  bool _isLoadingUserData = false;
+
+  User? _currentUser;
+  String? _authToken;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
 
   @override
   void dispose() {
@@ -30,6 +43,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     _addressController.dispose();
     _specialInstructionController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadUserData() async {
+    setState(() => _isLoadingUserData = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _authToken = prefs.getString('auth_token');
+
+      if (_authToken != null && _authToken!.isNotEmpty) {
+        // User is logged in, fetch user details
+        _currentUser = await AuthService.getUserDetails(_authToken!);
+
+        // Auto-fill form with user data
+        _nameController.text = _currentUser!.name;
+        _emailController.text = _currentUser!.email;
+        if (_currentUser!.phone != null && _currentUser!.phone!.isNotEmpty) {
+          _phoneController.text = _currentUser!.phone!;
+        }
+
+        setState(() {});
+      }
+    } catch (e) {
+      // Handle error silently, user can still fill form manually
+      print('Error loading user data: $e');
+    } finally {
+      setState(() => _isLoadingUserData = false);
+    }
   }
 
   @override
@@ -47,6 +88,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             child: Column(
               children: [
                 _buildOrderSummaryCard(cartService),
+                _buildUserInfoCard(),
                 _buildShippingFormCard(),
                 _buildPaymentMethodCard(),
                 _buildSpecialInstructionCard(),
@@ -127,6 +169,83 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildUserInfoCard() {
+    if (_currentUser == null) return SizedBox.shrink();
+
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.check_box, color: Colors.green, size: 24),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Logged in as',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      Text(
+                        _currentUser!.name,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Verified',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.green,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -325,14 +444,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     child: Icon(Icons.local_shipping, color: Color(0xFF2E86AB), size: 24),
                   ),
                   SizedBox(width: 12),
-                  Text(
-                    'Shipping Information',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey[800],
+                  Expanded(
+                    child: Text(
+                      'Shipping Information',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[800],
+                      ),
                     ),
                   ),
+                  if (_isLoadingUserData)
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                 ],
               ),
               SizedBox(height: 20),
@@ -862,19 +989,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       double subTotal = cartService.totalPrice;
       double finalTotal = subTotal + deliveryFee - cartService.totalSavings;
 
-      final orderResponse = await OrderService.placeOrder(
-        name: _nameController.text.trim(),
-        phone: _phoneController.text.trim(),
-        email: _emailController.text.trim(),
-        address: _addressController.text.trim(),
-        specialInstruction: _specialInstructionController.text.trim(),
-        paymentMethod: _paymentMethod,
-        cartItems: cartService.items,
-        deliveryFee: deliveryFee,
-        subTotal: subTotal,
-        totalAmount: finalTotal,
-        deliveryLocation: _deliveryLocation,
-        discountAmount: cartService.totalSavings,
+      // Create order data
+      Map<String, dynamic> orderData = {
+        'name': _nameController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'email': _emailController.text.trim(),
+        'address': _addressController.text.trim(),
+        'special_instruction': _specialInstructionController.text.trim(),
+        'payment_method': _paymentMethod,
+        'delivery_location': _deliveryLocation,
+        'delivery_fee': deliveryFee,
+        'sub_total': subTotal,
+        'total_amount': finalTotal,
+        'discount_amount': cartService.totalSavings,
+        'cart_items': cartService.items.map((item) => {
+          'product_id': item.productId,
+          'product_name': item.productName,
+          'product_image': item.productImage,
+          'quantity': item.quantity,
+          'price': item.effectivePrice,
+          'total_price': item.totalPrice,
+          'variant': item.selectedVariant?.toJson(),
+        }).toList(),
+      };
+
+      // If user is logged in, include auth token for user association
+      final orderResponse = await OrderService.placeOrderWithAuth(
+        orderData: orderData,
+        authToken: _authToken,
       );
 
       if (orderResponse.success) {
@@ -937,7 +1079,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ),
               SizedBox(height: 8),
               Text(
-                'Thank you for your order. We will contact you soon with delivery details.',
+                _currentUser != null
+                    ? 'Your order has been saved to your account. Check "My Orders" to track your order status.'
+                    : 'Thank you for your order. We will contact you soon with delivery details.',
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey[600],
@@ -969,12 +1113,20 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.of(context).pop();
-                        // Navigate to order success screen
-                        Navigator.pushNamedAndRemoveUntil(
-                          context,
-                          '/order-success',
-                              (route) => false,
-                        );
+                        // Navigate to my orders if user is logged in, otherwise order success
+                        if (_currentUser != null) {
+                          Navigator.pushNamedAndRemoveUntil(
+                            context,
+                            '/my-orders',
+                                (route) => false,
+                          );
+                        } else {
+                          Navigator.pushNamedAndRemoveUntil(
+                            context,
+                            '/order-success',
+                                (route) => false,
+                          );
+                        }
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Color(0xFF2E86AB),
@@ -982,7 +1134,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         padding: EdgeInsets.symmetric(vertical: 12),
                       ),
                       child: Text(
-                        'View Orders',
+                        _currentUser != null ? 'View My Orders' : 'View Orders',
                         style: TextStyle(color: Colors.white),
                       ),
                     ),
@@ -994,126 +1146,5 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ),
       ),
     );
-  }
-}
-
-// Search Screen (unchanged from your original)
-class SearchScreen extends StatefulWidget {
-  @override
-  _SearchScreenState createState() => _SearchScreenState();
-}
-
-class _SearchScreenState extends State<SearchScreen> {
-  final _searchController = TextEditingController();
-  List<String> _searchHistory = [];
-  bool _isSearching = false;
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: TextField(
-          controller: _searchController,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: 'Search products...',
-            border: InputBorder.none,
-            hintStyle: TextStyle(color: Colors.grey[600]),
-          ),
-          onSubmitted: _performSearch,
-        ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.search),
-            onPressed: () => _performSearch(_searchController.text),
-          ),
-        ],
-      ),
-      body: _isSearching
-          ? Center(child: CircularProgressIndicator())
-          : _buildSearchContent(),
-    );
-  }
-
-  Widget _buildSearchContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (_searchHistory.isNotEmpty) ...[
-          Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              'Recent Searches',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          ..._searchHistory.map((query) => ListTile(
-            leading: Icon(Icons.history, color: Colors.grey),
-            title: Text(query),
-            onTap: () => _performSearch(query),
-            trailing: IconButton(
-              icon: Icon(Icons.close, color: Colors.grey),
-              onPressed: () => _removeFromHistory(query),
-            ),
-          )).toList(),
-        ] else
-          Expanded(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.search, size: 80, color: Colors.grey[400]),
-                  SizedBox(height: 16),
-                  Text(
-                    'Search for products',
-                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  void _performSearch(String query) async {
-    if (query.trim().isEmpty) return;
-
-    setState(() => _isSearching = true);
-
-    // Add to search history
-    if (!_searchHistory.contains(query)) {
-      _searchHistory.insert(0, query);
-      if (_searchHistory.length > 10) {
-        _searchHistory = _searchHistory.take(10).toList();
-      }
-    }
-
-    try {
-      // Simulate search
-      await Future.delayed(Duration(seconds: 1));
-
-      // Navigate to results (in a real app, you'd pass results)
-      Navigator.pushNamed(context, '/search-results', arguments: query);
-    } catch (e) {
-      UIUtils.showErrorSnackBar(context, 'Search failed: $e');
-    } finally {
-      setState(() => _isSearching = false);
-    }
-  }
-
-  void _removeFromHistory(String query) {
-    setState(() {
-      _searchHistory.remove(query);
-    });
   }
 }

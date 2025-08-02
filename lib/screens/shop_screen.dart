@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../models/category.dart';
 import '../services/api_service.dart';
+import '../services/cart_service.dart';
 import '../utils/ui_utils.dart';
+import '../widgets/common/cart_drawer_widget.dart';
 import '../widgets/common/loading_widgets.dart';
 import '../widgets/common/shared_widgets.dart';
 
@@ -47,6 +50,9 @@ class _ShopScreenState extends State<ShopScreen> {
   Timer? _searchTimer;
   int _currentIndex = 0;
 
+  // Scaffold key for cart drawer
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   // ================ LIFECYCLE METHODS ================
 
   @override
@@ -54,6 +60,10 @@ class _ShopScreenState extends State<ShopScreen> {
     super.initState();
     _loadData();
     _scrollController.addListener(_onScroll);
+    // Initialize cart when screen initializes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Provider.of<CartService>(context, listen: false).initialize();
+    });
   }
 
   @override
@@ -237,8 +247,10 @@ class _ShopScreenState extends State<ShopScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: Colors.grey[50],
       appBar: _buildAppBar(),
+      endDrawer: const CartDrawer(), // Using the CartDrawer widget
       body: _buildBody(), // Search bar will always be visible now
     );
   }
@@ -246,14 +258,72 @@ class _ShopScreenState extends State<ShopScreen> {
   // ================ APP BAR ================
 
   PreferredSizeWidget _buildAppBar() {
-    return SharedWidgets.buildAppBar(
-      title: 'Karbar Shop',
-      actions: [
-        IconButton(
-          icon: Icon(Icons.shopping_cart_outlined, color: Color(0xFF2E86AB)),
-          onPressed: () => UIUtils.onCartTap(context),
+    return AppBar(
+      elevation: 0,
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.white,
+      title: Text(
+        'Karbar Shop',
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: Colors.grey[800],
         ),
-        SizedBox(width: 8),
+      ),
+      centerTitle: true,
+      actions: [
+        Container(
+          margin: EdgeInsets.only(right: 8),
+          child: Consumer<CartService>(
+            builder: (context, cartService, child) {
+              return Stack(
+                children: [
+                  IconButton(
+                    icon: Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Color(0xFF2E86AB).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.shopping_cart_outlined,
+                        color: Color(0xFF2E86AB),
+                        size: 20,
+                      ),
+                    ),
+                    onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+                  ),
+                  if (cartService.totalItems > 0)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Container(
+                        padding: EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1),
+                        ),
+                        constraints: BoxConstraints(
+                          minWidth: 18,
+                          minHeight: 18,
+                        ),
+                        child: Text(
+                          cartService.totalItems > 99 ? '99+' : cartService.totalItems.toString(),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
       ],
     );
   }
@@ -262,7 +332,11 @@ class _ShopScreenState extends State<ShopScreen> {
 
   Widget _buildBody() {
     return RefreshIndicator(
-      onRefresh: _loadData,
+      onRefresh: () async {
+        await _loadData();
+        // Refresh cart as well
+        await Provider.of<CartService>(context, listen: false).refreshCart();
+      },
       color: Color(0xFF2E86AB),
       child: Column(
         children: [
@@ -403,94 +477,103 @@ class _ShopScreenState extends State<ShopScreen> {
   // ================ FILTER BOTTOM SHEET ================
 
   Widget _buildFilterBottomSheet() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.9,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (context, scrollController) {
-          return Column(
-            children: [
-              Container(
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Filters',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+    return StatefulBuilder(
+      builder: (BuildContext context, StateSetter setModalState) {
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            maxChildSize: 0.9,
+            minChildSize: 0.5,
+            expand: false,
+            builder: (context, scrollController) {
+              return Column(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      border: Border(bottom: BorderSide(color: Colors.grey[200]!)),
                     ),
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          selectedCategory = '';
-                          selectedBrand = '';
-                          selectedSortBy = '';
-                        });
-                        _applyFilters();
-                        Navigator.pop(context);
-                      },
-                      child: Text('Clear All'),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: scrollController,
-                  padding: EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildCategoryFilter(),
-                      SizedBox(height: 20),
-                      _buildBrandFilter(),
-                      SizedBox(height: 20),
-                      _buildSortByFilter(),
-                      SizedBox(height: 32),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Filters',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        TextButton(
                           onPressed: () {
+                            setState(() {
+                              selectedCategory = '';
+                              selectedBrand = '';
+                              selectedSortBy = '';
+                            });
+                            setModalState(() {
+                              selectedCategory = '';
+                              selectedBrand = '';
+                              selectedSortBy = '';
+                            });
                             _applyFilters();
                             Navigator.pop(context);
                           },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Color(0xFF2E86AB),
-                            padding: EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                          child: Text('Clear All'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: scrollController,
+                      padding: EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildCategoryFilter(setModalState),
+                          SizedBox(height: 20),
+                          _buildBrandFilter(setModalState),
+                          SizedBox(height: 20),
+                          _buildSortByFilter(setModalState),
+                          SizedBox(height: 32),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                _applyFilters();
+                                Navigator.pop(context);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Color(0xFF2E86AB),
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: Text(
+                                'Apply Filters',
+                                style: TextStyle(fontSize: 16, color: Colors.white),
+                              ),
                             ),
                           ),
-                          child: Text(
-                            'Apply Filters',
-                            style: TextStyle(fontSize: 16, color: Colors.white),
-                          ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildCategoryFilter() {
+  Widget _buildCategoryFilter(StateSetter setModalState) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -511,14 +594,21 @@ class _ShopScreenState extends State<ShopScreen> {
               setState(() {
                 selectedCategory = '';
               });
+              setModalState(() {
+                selectedCategory = '';
+              });
             }),
             ...categories.map((category) {
               return _buildFilterChip(
                 category.name,
                 selectedCategory == category.slug,
                     () {
+                  final newValue = selectedCategory == category.slug ? '' : category.slug;
                   setState(() {
-                    selectedCategory = selectedCategory == category.slug ? '' : category.slug;
+                    selectedCategory = newValue;
+                  });
+                  setModalState(() {
+                    selectedCategory = newValue;
                   });
                 },
               );
@@ -529,7 +619,7 @@ class _ShopScreenState extends State<ShopScreen> {
     );
   }
 
-  Widget _buildBrandFilter() {
+  Widget _buildBrandFilter(StateSetter setModalState) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -550,14 +640,21 @@ class _ShopScreenState extends State<ShopScreen> {
               setState(() {
                 selectedBrand = '';
               });
+              setModalState(() {
+                selectedBrand = '';
+              });
             }),
             ...availableBrands.map((brand) {
               return _buildFilterChip(
                 brand,
                 selectedBrand == brand,
                     () {
+                  final newValue = selectedBrand == brand ? '' : brand;
                   setState(() {
-                    selectedBrand = selectedBrand == brand ? '' : brand;
+                    selectedBrand = newValue;
+                  });
+                  setModalState(() {
+                    selectedBrand = newValue;
                   });
                 },
               );
@@ -568,7 +665,7 @@ class _ShopScreenState extends State<ShopScreen> {
     );
   }
 
-  Widget _buildSortByFilter() {
+  Widget _buildSortByFilter(StateSetter setModalState) {
     final sortLabels = {
       'name_asc': 'Name (A-Z)',
       'name_desc': 'Name (Z-A)',
@@ -598,14 +695,21 @@ class _ShopScreenState extends State<ShopScreen> {
               setState(() {
                 selectedSortBy = '';
               });
+              setModalState(() {
+                selectedSortBy = '';
+              });
             }),
             ...sortOptions.map((sortOption) {
               return _buildFilterChip(
                 sortLabels[sortOption] ?? sortOption,
                 selectedSortBy == sortOption,
                     () {
+                  final newValue = selectedSortBy == sortOption ? '' : sortOption;
                   setState(() {
-                    selectedSortBy = selectedSortBy == sortOption ? '' : sortOption;
+                    selectedSortBy = newValue;
+                  });
+                  setModalState(() {
+                    selectedSortBy = newValue;
                   });
                 },
               );
@@ -647,8 +751,6 @@ class _ShopScreenState extends State<ShopScreen> {
       ),
     );
   }
-
-  // ================ PRODUCTS SECTION ================
 
   // ================ PRODUCTS SECTION ================
 
